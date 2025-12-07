@@ -1,60 +1,67 @@
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::env;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    pub cloudflare_api_key: String,
-    pub account_email: String,
+    pub certificates: Vec<CertificateConfig>,
+    pub dns_providers: DnsProviders,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CertificateConfig {
+    pub name: String,
     pub domains: Vec<String>,
-    pub use_production: bool,
+    pub acme_provider: String,
+    pub dns_provider: String,
+    pub account_email: String,
     pub output_dir: String,
 }
 
-impl Config {
-    pub fn from_env() -> Result<Self> {
-        let cloudflare_api_key = env::var("CLOUDFLARE_API_KEY")
-            .map_err(|_| {
-                anyhow!("CLOUDFLARE_API_KEY environment variable not set")
-            })?;
-        let account_email = env::var("ACME_EMAIL")
-            .map_err(|_| {
-                anyhow!("ACME_EMAIL environment variable not set")
-            })?;
-        let domains_str = env::var("DOMAINS")
-            .map_err(|_| anyhow!("DOMAINS environment variable not set (comma-separated list)"))?;
-        let domains: Vec<String> = domains_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if domains.is_empty() {
-            return Err(anyhow!("No domains specified in DOMAINS variable"));
-        }
-        let use_production = env::var("USE_PRODUCTION")
-            .unwrap_or_else(|_| "false".to_string())
-            .parse::<bool>()
-            .unwrap_or(false);
-        let output_dir = env::var("OUTPUT_DIR").unwrap_or_else(|_| "./certs".to_string());
+#[derive(Debug, Clone, Deserialize)]
+pub struct DnsProviders {
+    #[serde(default)]
+    pub cloudflare: Option<CloudflareConfig>,
+}
 
-        Ok(Self {
-            cloudflare_api_key,
-            account_email,
-            domains,
-            use_production,
-            output_dir,
-        })
+#[derive(Debug, Clone, Deserialize)]
+pub struct CloudflareConfig {
+    pub api_key: String,
+}
+
+impl Config {
+    pub fn load() -> Result<Self> {
+        if let Ok(config_path) = env::var("CONFIG_FILE") {
+            return Self::from_file(&config_path);
+        }
+        if PathBuf::from("config.toml").exists() {
+            return Self::from_file("config.toml");
+        }
+
+        Err(anyhow!("No configuration file found. Please set CONFIG_FILE environment variable or create config.toml"))
+    }
+
+    pub fn from_file(path: &str) -> Result<Self> {
+        let contents = std::fs::read_to_string(path)?;
+        let config: Config = toml::from_str(&contents)?;
+        config.validate()?;
+        Ok(config)
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.cloudflare_api_key.is_empty() {
-            return Err(anyhow!("Cloudflare API key is empty"));
+        if self.certificates.is_empty() {
+            return Err(anyhow!("No certificates configured"));
         }
-        if self.account_email.is_empty() {
-            return Err(anyhow!("Account email is empty"));
-        }
-        if self.domains.is_empty() {
-            return Err(anyhow!("No domains specified"));
+
+        for cert in &self.certificates {
+            if cert.domains.is_empty() {
+                return Err(anyhow!("Certificate '{}' has no domains specified", cert.name));
+            }
+            if cert.account_email.is_empty() {
+                return Err(anyhow!("Certificate '{}' has no account email", cert.name));
+            }
+
         }
 
         Ok(())

@@ -1,7 +1,8 @@
+use crate::acme_provider::AcmeProviderType;
 use crate::dns_provider::DnsProvider;
 use anyhow::{anyhow, Result};
 use instant_acme::{
-    Account, AccountCredentials, ChallengeType, Identifier, LetsEncrypt, NewAccount, NewOrder,
+    Account, AccountCredentials, ChallengeType, Identifier, NewOrder,
     OrderStatus,
 };
 use rcgen::{CertificateParams, KeyPair};
@@ -15,7 +16,7 @@ use x509_parser::pem::parse_x509_pem;
 pub struct AcmeService {
     dns_provider: Arc<dyn DnsProvider>,
     account_email: String,
-    use_production: bool,
+    acme_provider: AcmeProviderType,
 }
 
 pub struct CertificateResult {
@@ -28,12 +29,12 @@ impl AcmeService {
     pub fn new(
         dns_provider: Arc<dyn DnsProvider>,
         account_email: String,
-        use_production: bool,
+        acme_provider: AcmeProviderType,
     ) -> Self {
         Self {
             dns_provider,
             account_email,
-            use_production,
+            acme_provider,
         }
     }
 
@@ -48,28 +49,21 @@ impl AcmeService {
             
             Ok((account, credentials))
         } else {
-            info!("Creating new ACME account");
-            let url = if self.use_production {
-                info!("Using Let's Encrypt production environment");
-                LetsEncrypt::Production.url()
-            } else {
-                info!("Using Let's Encrypt staging environment");
-                LetsEncrypt::Staging.url()
-            };
+            info!("Creating new ACME account with {}", self.acme_provider.name());
             let (account, credentials) = Account::create(
-                &NewAccount {
+                &instant_acme::NewAccount {
                     contact: &[&format!("mailto:{}", self.account_email)],
                     terms_of_service_agreed: true,
                     only_return_existing: false,
                 },
-                url,
+                self.acme_provider.directory_url(),
                 None,
             )
             .await?;
 
             let credentials_json = serde_json::to_string_pretty(&credentials)?;
             fs::write(key_path, credentials_json).await?;
-            info!("ACME account created and saved");
+            info!("ACME account created and saved for {}", self.acme_provider.name());
             Ok((account, credentials))
         }
     }
@@ -148,6 +142,7 @@ impl AcmeService {
                                 .await
                                 .ok();
                             return Err(anyhow!("Challenge validation timeout"));
+                            // TODO: When timing out, retry sooner than 24 hours
                         }
                     }
                 }

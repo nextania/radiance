@@ -12,5 +12,5 @@ pub trait DnsProvider: Send + Sync {
 
     async fn delete_txt_record(&self, domain: &str, record_id: &str) -> Result<()>;
 
-    fn provider_name(&self) -> &str;
+    fn name(&self) -> &str;
 }

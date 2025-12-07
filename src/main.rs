@@ -1,14 +1,16 @@
 mod acme;
+mod acme_provider;
+mod certificate_manager;
 mod cloudflare;
 mod config;
 mod dns_provider;
 
-use acme::AcmeService;
+use certificate_manager::CertificateManager;
 use cloudflare::CloudflareClient;
 use config::Config;
-use anyhow::Result;
-use std::path::PathBuf;
-use tokio::fs;
+use dns_provider::DnsProvider;
+use anyhow::{anyhow, Result};
+use std::sync::Arc;
 use tracing::{error, info};
 use tracing_subscriber;
 
@@ -20,57 +22,51 @@ async fn main() -> Result<()> {
         .init();
 
     info!("Starting Zenith ACME certificate service");
-    let config = Config::from_env()?;
-    config.validate()?;
-    info!("Configuration loaded");
+    let config = Config::load()?;
+    info!("Configuration loaded with {} certificate(s)", config.certificates.len());
 
-    let output_dir = PathBuf::from(&config.output_dir);
-    fs::create_dir_all(&output_dir).await?;
-    info!("Output directory created: {:?}", output_dir);
+    let mut dns_providers: std::collections::HashMap<String, Arc<dyn DnsProvider>> = 
+        std::collections::HashMap::new();
 
-    let cloudflare_client = CloudflareClient::new(
-        config.cloudflare_api_key.clone(),
-    );
-    let acme_service = AcmeService::new(
-        cloudflare_client,
-        config.account_email.clone(),
-        config.use_production,
-    );
-    let account_key_path = output_dir.join("account.key");
-    let cert_key_path = output_dir.join("cert.key");
-    let cert_path = output_dir.join("cert.pem");
-    let chain_path = output_dir.join("chain.pem");
-    let fullchain_path = output_dir.join("fullchain.pem");
+    if let Some(cloudflare_config) = &config.dns_providers.cloudflare {
+        let cloudflare = CloudflareClient::new(cloudflare_config.api_key.clone());
+        dns_providers.insert("cloudflare".to_string(), Arc::new(cloudflare));
+        info!("Cloudflare DNS provider initialized");
+    }
+
+    let certificates = config.certificates.iter().map(|c| {
+        let dns_provider = dns_providers
+            .get(&c.dns_provider)
+            .ok_or_else(|| {
+                anyhow!(
+                    "DNS provider '{}' not configured for certificate '{}'",
+                    c.dns_provider,
+                    c.name
+                )
+            })?
+            .clone();
+        CertificateManager::new(c.clone(), dns_provider)
+    }).collect::<Result<Vec<_>>>()?;
+        
+    if certificates.is_empty() {
+        return Err(anyhow!("No certificate managers were successfully created"));
+    }
+
     loop {
-        if acme_service.needs_renewal(&cert_path).await? {
-            info!("Certificate renewal needed");
-            match acme_service
-                .request_certificate(config.domains.clone(), &account_key_path, &cert_key_path)
-                .await
-            {
-                Ok(result) => {
-                    info!("Certificate obtained successfully");
-                    fs::write(&cert_key_path, &result.private_key).await?;
-                    info!("Private key saved to: {:?}", cert_key_path);
-                    fs::write(&cert_path, &result.certificate).await?;
-                    info!("Certificate saved to: {:?}", cert_path);
-                    if !result.chain.is_empty() {
-                        fs::write(&chain_path, &result.chain).await?;
-                        info!("Certificate chain saved to: {:?}", chain_path);
-                        let fullchain = format!("{}{}", result.certificate, result.chain);
-                        fs::write(&fullchain_path, fullchain).await?;
-                        info!("Full chain saved to: {:?}", fullchain_path);
+        for certificate in &certificates {
+            let paths = certificate.get_or_create_paths().await?;
+            match certificate.check_and_renew(&paths).await {
+                Ok(renewed) => {
+                    if renewed {
+                        info!("Certificate '{}': Successfully renewed", certificate.name());
+                    } else {
+                        info!("Certificate '{}': No renewal needed", certificate.name());
                     }
-
-                    info!("Certificate issuance complete");
                 }
                 Err(e) => {
-                    error!("Failed to obtain certificate: {}", e);
-                    return Err(e);
+                    error!("Certificate '{}': Error during renewal check: {}", certificate.name(), e);
                 }
             }
-        } else {
-            info!("Certificate is still valid, no renewal needed");
         }
         info!("Sleeping for 24 hours before next check");
         tokio::time::sleep(std::time::Duration::from_hours(24)).await;

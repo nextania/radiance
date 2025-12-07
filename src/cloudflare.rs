@@ -168,7 +168,7 @@ impl DnsProvider for CloudflareClient {
         self.delete_txt_record(domain, record_id).await
     }
 
-    fn provider_name(&self) -> &str {
+    fn name(&self) -> &str {
         "Cloudflare"
     }
 }
