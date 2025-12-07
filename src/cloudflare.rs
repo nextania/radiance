@@ -1,5 +1,5 @@
 use crate::dns_provider::DnsProvider;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -48,10 +48,7 @@ impl CloudflareClient {
             .build()
             .expect("Failed to create HTTP client");
 
-        Self {
-            api_key,
-            client,
-        }
+        Self { api_key, client }
     }
 
     async fn get_zone_id(&self, domain: &str) -> Result<String> {
@@ -65,10 +62,7 @@ impl CloudflareClient {
             .await?;
         let cf_response: CloudflareResponse<Vec<Zone>> = response.json().await?;
         if !cf_response.success {
-            return Err(anyhow!(
-                "Cloudflare API error: {:?}",
-                cf_response.errors
-            ));
+            return Err(anyhow!("Cloudflare API error: {:?}", cf_response.errors));
         }
 
         cf_response
@@ -123,11 +117,7 @@ impl CloudflareClient {
         Ok(record_id)
     }
 
-    pub async fn delete_txt_record(
-        &self,
-        domain: &str,
-        record_id: &str,
-    ) -> Result<()> {
+    pub async fn delete_txt_record(&self, domain: &str, record_id: &str) -> Result<()> {
         info!("Deleting TXT record with ID: {}", record_id);
         let zone_id = self.get_zone_id(domain).await?;
         let url = format!(

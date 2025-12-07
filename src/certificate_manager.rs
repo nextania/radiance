@@ -14,16 +14,10 @@ pub struct CertificateManager {
 }
 
 impl CertificateManager {
-    pub fn new(
-        config: CertificateConfig,
-        dns_provider: Arc<dyn DnsProvider>,
-    ) -> Result<Self> {
+    pub fn new(config: CertificateConfig, dns_provider: Arc<dyn DnsProvider>) -> Result<Self> {
         let acme_provider = AcmeProviderType::from_string(&config.acme_provider)?;
-        let acme_service = AcmeService::new(
-            dns_provider,
-            config.account_email.clone(),
-            acme_provider,
-        );
+        let acme_service =
+            AcmeService::new(dns_provider, config.account_email.clone(), acme_provider);
 
         Ok(Self {
             config,
@@ -41,7 +35,7 @@ impl CertificateManager {
             chain: output_dir.join("chain.pem"),
             fullchain: output_dir.join("fullchain.pem"),
         };
-        
+
         fs::create_dir_all(&paths.output_dir).await?;
         info!(
             "Certificate '{}': Output directory created: {:?}",
@@ -53,7 +47,7 @@ impl CertificateManager {
     pub async fn check_and_renew(&self, paths: &CertificatePaths) -> Result<bool> {
         if self.acme_service.needs_renewal(&paths.cert).await? {
             info!("Certificate '{}': Renewal needed", self.config.name);
-            
+
             let result = self
                 .acme_service
                 .request_certificate(
@@ -64,26 +58,41 @@ impl CertificateManager {
                 .await?;
 
             info!("Certificate '{}': Obtained successfully", self.config.name);
-            
+
             fs::write(&paths.cert_key, &result.private_key).await?;
-            info!("Certificate '{}': Private key saved to: {:?}", self.config.name, paths.cert_key);
-            
+            info!(
+                "Certificate '{}': Private key saved to: {:?}",
+                self.config.name, paths.cert_key
+            );
+
             fs::write(&paths.cert, &result.certificate).await?;
-            info!("Certificate '{}': Certificate saved to: {:?}", self.config.name, paths.cert);
-            
+            info!(
+                "Certificate '{}': Certificate saved to: {:?}",
+                self.config.name, paths.cert
+            );
+
             if !result.chain.is_empty() {
                 fs::write(&paths.chain, &result.chain).await?;
-                info!("Certificate '{}': Chain saved to: {:?}", self.config.name, paths.chain);
-                
+                info!(
+                    "Certificate '{}': Chain saved to: {:?}",
+                    self.config.name, paths.chain
+                );
+
                 let fullchain = format!("{}{}", result.certificate, result.chain);
                 fs::write(&paths.fullchain, fullchain).await?;
-                info!("Certificate '{}': Full chain saved to: {:?}", self.config.name, paths.fullchain);
+                info!(
+                    "Certificate '{}': Full chain saved to: {:?}",
+                    self.config.name, paths.fullchain
+                );
             }
 
             info!("Certificate '{}': Issuance complete", self.config.name);
             Ok(true)
         } else {
-            info!("Certificate '{}': Still valid, no renewal needed", self.config.name);
+            info!(
+                "Certificate '{}': Still valid, no renewal needed",
+                self.config.name
+            );
             Ok(false)
         }
     }

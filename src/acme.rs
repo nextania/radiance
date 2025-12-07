@@ -1,10 +1,7 @@
 use crate::acme_provider::AcmeProviderType;
 use crate::dns_provider::DnsProvider;
-use anyhow::{anyhow, Result};
-use instant_acme::{
-    Account, AccountCredentials, ChallengeType, Identifier, NewOrder,
-    OrderStatus,
-};
+use anyhow::{Result, anyhow};
+use instant_acme::{Account, AccountCredentials, ChallengeType, Identifier, NewOrder, OrderStatus};
 use rcgen::{CertificateParams, KeyPair};
 use std::path::Path;
 use std::sync::Arc;
@@ -38,7 +35,10 @@ impl AcmeService {
         }
     }
 
-    async fn get_or_create_account(&self, key_path: &Path) -> Result<(Account, AccountCredentials)> {
+    async fn get_or_create_account(
+        &self,
+        key_path: &Path,
+    ) -> Result<(Account, AccountCredentials)> {
         if key_path.exists() {
             info!("Loading existing account credentials from {:?}", key_path);
             let credentials_pem = fs::read_to_string(key_path).await?;
@@ -46,10 +46,13 @@ impl AcmeService {
             let account = Account::from_credentials(credentials).await?;
             let credentials_pem = fs::read_to_string(key_path).await?;
             let credentials: AccountCredentials = serde_json::from_str(&credentials_pem)?;
-            
+
             Ok((account, credentials))
         } else {
-            info!("Creating new ACME account with {}", self.acme_provider.name());
+            info!(
+                "Creating new ACME account with {}",
+                self.acme_provider.name()
+            );
             let (account, credentials) = Account::create(
                 &instant_acme::NewAccount {
                     contact: &[&format!("mailto:{}", self.account_email)],
@@ -63,7 +66,10 @@ impl AcmeService {
 
             let credentials_json = serde_json::to_string_pretty(&credentials)?;
             fs::write(key_path, credentials_json).await?;
-            info!("ACME account created and saved for {}", self.acme_provider.name());
+            info!(
+                "ACME account created and saved for {}",
+                self.acme_provider.name()
+            );
             Ok((account, credentials))
         }
     }
@@ -162,10 +168,9 @@ impl AcmeService {
             key_pair
         };
         let mut params = CertificateParams::new(domains.clone())?;
-        params.distinguished_name.push(
-            rcgen::DnType::CommonName,
-            domains[0].clone(),
-        );
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, domains[0].clone());
         let csr = params.serialize_request(&cert_key_pair)?;
 
         info!("Finalizing order");
@@ -232,9 +237,10 @@ impl AcmeService {
         }
 
         let cert_pem = fs::read(cert_path).await?;
-        let pem = parse_x509_pem(&cert_pem)
-            .map_err(|e| anyhow!("Failed to parse PEM: {}", e))?;
-        let cert = pem.1.parse_x509()
+        let pem = parse_x509_pem(&cert_pem).map_err(|e| anyhow!("Failed to parse PEM: {}", e))?;
+        let cert = pem
+            .1
+            .parse_x509()
             .map_err(|e| anyhow!("Failed to parse X509 certificate: {}", e))?;
         let not_after = cert.validity().not_after;
         let expiration_timestamp = not_after.timestamp();
@@ -243,9 +249,9 @@ impl AcmeService {
             .as_secs() as i64;
         let seconds_remaining = expiration_timestamp - now;
         let days_remaining = seconds_remaining / 86400;
-        
+
         info!("Certificate expires in {} days", days_remaining);
-        
+
         if days_remaining < 30 {
             info!("Certificate needs renewal (less than 30 days remaining)");
             Ok(true)

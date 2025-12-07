@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use std::env;
 use std::path::PathBuf;
@@ -39,7 +39,9 @@ impl Config {
             return Self::from_file("config.toml");
         }
 
-        Err(anyhow!("No configuration file found. Please set CONFIG_FILE environment variable or create config.toml"))
+        Err(anyhow!(
+            "No configuration file found. Please set CONFIG_FILE environment variable or create config.toml"
+        ))
     }
 
     pub fn from_file(path: &str) -> Result<Self> {
@@ -56,12 +58,14 @@ impl Config {
 
         for cert in &self.certificates {
             if cert.domains.is_empty() {
-                return Err(anyhow!("Certificate '{}' has no domains specified", cert.name));
+                return Err(anyhow!(
+                    "Certificate '{}' has no domains specified",
+                    cert.name
+                ));
             }
             if cert.account_email.is_empty() {
                 return Err(anyhow!("Certificate '{}' has no account email", cert.name));
             }
-
         }
 
         Ok(())

@@ -5,11 +5,11 @@ mod cloudflare;
 mod config;
 mod dns_provider;
 
+use anyhow::{Result, anyhow};
 use certificate_manager::CertificateManager;
 use cloudflare::CloudflareClient;
 use config::Config;
 use dns_provider::DnsProvider;
-use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use tracing::{error, info};
 use tracing_subscriber;
@@ -23,9 +23,12 @@ async fn main() -> Result<()> {
 
     info!("Starting Zenith ACME certificate service");
     let config = Config::load()?;
-    info!("Configuration loaded with {} certificate(s)", config.certificates.len());
+    info!(
+        "Configuration loaded with {} certificate(s)",
+        config.certificates.len()
+    );
 
-    let mut dns_providers: std::collections::HashMap<String, Arc<dyn DnsProvider>> = 
+    let mut dns_providers: std::collections::HashMap<String, Arc<dyn DnsProvider>> =
         std::collections::HashMap::new();
 
     if let Some(cloudflare_config) = &config.dns_providers.cloudflare {
@@ -34,20 +37,24 @@ async fn main() -> Result<()> {
         info!("Cloudflare DNS provider initialized");
     }
 
-    let certificates = config.certificates.iter().map(|c| {
-        let dns_provider = dns_providers
-            .get(&c.dns_provider)
-            .ok_or_else(|| {
-                anyhow!(
-                    "DNS provider '{}' not configured for certificate '{}'",
-                    c.dns_provider,
-                    c.name
-                )
-            })?
-            .clone();
-        CertificateManager::new(c.clone(), dns_provider)
-    }).collect::<Result<Vec<_>>>()?;
-        
+    let certificates = config
+        .certificates
+        .iter()
+        .map(|c| {
+            let dns_provider = dns_providers
+                .get(&c.dns_provider)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "DNS provider '{}' not configured for certificate '{}'",
+                        c.dns_provider,
+                        c.name
+                    )
+                })?
+                .clone();
+            CertificateManager::new(c.clone(), dns_provider)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
     if certificates.is_empty() {
         return Err(anyhow!("No certificate managers were successfully created"));
     }
@@ -64,7 +71,11 @@ async fn main() -> Result<()> {
                     }
                 }
                 Err(e) => {
-                    error!("Certificate '{}': Error during renewal check: {}", certificate.name(), e);
+                    error!(
+                        "Certificate '{}': Error during renewal check: {}",
+                        certificate.name(),
+                        e
+                    );
                 }
             }
         }
@@ -72,4 +83,3 @@ async fn main() -> Result<()> {
         tokio::time::sleep(std::time::Duration::from_hours(24)).await;
     }
 }
-
