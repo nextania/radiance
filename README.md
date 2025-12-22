@@ -1,13 +1,18 @@
-# Zenith
+# Radiance
 
-Zenith is a service that automatically requests and renews SSL/TLS certificates from Let's Encrypt using the ACME protocol and Cloudflare DNS-01 challenges.
+A high-performance reverse proxy built with Cloudflare's Pingora framework in Rust.
+
+## Features
+- TLS termination
+- Load balancing
+- Health checks
+- ACME certificate management (Let's Encrypt) via Zenith
+
+## Zenith
+Radiance integrates with Zenith for ACME certificate management. Zenith handles automatic certificate issuance and renewal using ACME and can be run independently or alongside Radiance.
 
 ## Configuration
+TODO
 
-Set the environment variables or use a `.env` file. 
-
-- `CLOUDFLARE_API_KEY` - A Cloudflare API key with access to DNS for the applicable domains 
-- `DOMAINS` - Comma-separated list of domains to generate certificates for
-- `ACME_EMAIL` - Email for ACME account registration
-- `USE_PRODUCTION` - Set to `true` to use the Let's Encrypt production environment
-- `OUTPUT_DIR` - Directory to save certificates (default: `./certs`)
+## Docker
+TODO

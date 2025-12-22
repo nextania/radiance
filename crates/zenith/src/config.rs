@@ -35,12 +35,12 @@ impl Config {
         if let Ok(config_path) = env::var("CONFIG_FILE") {
             return Self::from_file(&config_path);
         }
-        if PathBuf::from("config.toml").exists() {
-            return Self::from_file("config.toml");
+        if PathBuf::from("zenith.toml").exists() {
+            return Self::from_file("zenith.toml");
         }
 
         Err(anyhow!(
-            "No configuration file found. Please set CONFIG_FILE environment variable or create config.toml"
+            "No configuration file found. Please set CONFIG_FILE environment variable or create zenith.toml"
         ))
     }
 

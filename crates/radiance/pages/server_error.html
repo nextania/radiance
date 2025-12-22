@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>{errorCode} - {errorText}</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+                background: white;
+                color: #111827;
+            }
+            .container {
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                padding: 0 24px;
+            }
+            .content {
+                max-width: 640px;
+            }
+            .error-code {
+                font-size: 120px;
+                line-height: 1;
+                color: #9333ea;
+                margin-bottom: 24px;
+                font-weight: 700;
+                letter-spacing: -0.02em;
+            }
+            h1 {
+                font-size: 36px;
+                font-weight: 600;
+                color: #111827;
+                margin-bottom: 16px;
+            }
+            .description {
+                font-size: 18px;
+                color: #6b7280;
+                line-height: 1.6;
+                margin-bottom: 32px;
+                max-width: 512px;
+            }
+            .request-id-section {
+                display: inline-block;
+                margin-bottom: 32px;
+            }
+            .request-id-label {
+                font-size: 14px;
+                color: #9ca3af;
+                margin-bottom: 4px;
+            }
+            .request-id-code {
+                font-family: 'Courier New', Courier, monospace;
+                font-size: 15px;
+                color: #9333ea;
+                background: #faf5ff;
+                padding: 6px 12px;
+                border-radius: 4px;
+                display: inline-block;
+            }
+            .footer {
+                font-size: 14px;
+                color: #d1d5db;
+                border-top: 1px solid #e5e7eb;
+                padding-top: 24px;
+            }
+            @media (min-width: 640px) {
+                .container {
+                    padding: 0 48px;
+                }
+            }
+            @media (min-width: 1024px) {
+                .container {
+                    padding: 0 96px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div className="container">
+            <div className="content">
+                <div className="error-code">{errorCode}</div>
+                <h1>{errorText}</h1>
+                <p className="description">
+                    The server encountered an error and could not complete your request. Please try again in a few moments.
+                </p>
+                <div className="request-id-section">
+                    <div className="request-id-label">Request ID</div>
+                    <code className="request-id-code">{requestId}</code>
+                </div>
+                <div className="footer">
+                    Powered by Radiance
+                </div>
+            </div>
+        </div>
+    </body>
+</html>
