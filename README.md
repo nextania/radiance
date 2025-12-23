@@ -1,4 +1,4 @@
-# Radiance
+# <img height="100" alt="Radiance" src="https://github.com/user-attachments/assets/8469add9-3c14-461b-919e-c37cf25ae002" />
 
 A high-performance reverse proxy built with Cloudflare's Pingora framework in Rust.
 
