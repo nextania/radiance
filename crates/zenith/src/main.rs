@@ -59,27 +59,53 @@ async fn main() -> Result<()> {
         return Err(anyhow!("No certificate managers were successfully created"));
     }
 
-    loop {
-        for certificate in &certificates {
-            let paths = certificate.get_or_create_paths().await?;
-            match certificate.check_and_renew(&paths).await {
-                Ok(renewed) => {
-                    if renewed {
-                        info!("Certificate '{}': Successfully renewed", certificate.name());
-                    } else {
-                        info!("Certificate '{}': No renewal needed", certificate.name());
+    for certificate in certificates {
+        tokio::spawn(async move {
+            let mut failures = 0;
+            loop {
+                let Ok(paths) = certificate.get_or_create_paths().await else {
+                    error!("Certificate '{}': Failed to get or create paths", certificate.name());
+                    break;
+                };
+                match certificate.check_and_renew(&paths).await {
+                    Ok(renewed) => {
+                        if renewed {
+                            info!("Certificate '{}': Successfully renewed", certificate.name());
+                        } else {
+                            info!("Certificate '{}': No renewal needed", certificate.name());
+                        }
+                        failures = 0;
+                    }
+                    Err(e) => {
+                        error!(
+                            "Certificate '{}': Error during renewal check: {}",
+                            certificate.name(),
+                            e
+                        );
+                        failures += 1;
+                        if failures >= 5 {
+                            error!(
+                                "Certificate '{}': Too many consecutive failures, stopping checks",
+                                certificate.name()
+                            );
+                            break;
+                        }
+                        info!(
+                            "Certificate '{}': Retrying in 5 minutes (failure count: {})",
+                            certificate.name(),
+                            failures
+                        );
+                        tokio::time::sleep(std::time::Duration::from_mins(5)).await;
+                        continue;
                     }
                 }
-                Err(e) => {
-                    error!(
-                        "Certificate '{}': Error during renewal check: {}",
-                        certificate.name(),
-                        e
-                    );
-                }
+                info!("Certificate '{}': Sleeping for 24 hours before next check", certificate.name());
+                tokio::time::sleep(std::time::Duration::from_hours(24)).await;
             }
-        }
-        info!("Sleeping for 24 hours before next check");
-        tokio::time::sleep(std::time::Duration::from_hours(24)).await;
+        });
     }
+
+    tokio::signal::ctrl_c().await?;
+    info!("Shutting down Zenith ACME certificate service");
+    Ok(())
 }
