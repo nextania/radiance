@@ -21,6 +21,9 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
 
     info!("Starting Zenith ACME certificate service");
     let config = Config::load()?;
