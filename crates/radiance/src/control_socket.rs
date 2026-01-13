@@ -1,5 +1,5 @@
 use partially::Partial;
-use radiance_types::{ControlCommand, ControlError, ControlResponse};
+use radiance_types::{ControlCommand, ControlError, ControlResponse, Empty};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Arc;
@@ -102,12 +102,16 @@ async fn process_command(command: ControlCommand, config: SharedConfig) -> Contr
     }
 }
 
+fn empty() -> serde_json::Value {
+    serde_json::to_value(Empty {}).unwrap()
+}
+
 async fn set_http_challenge(config: SharedConfig, domain: String, token: String, thumbprint: String) -> ControlResponse {
     let mut cfg = config.write().await;
     cfg.active_challenges.insert(domain.clone(), (token.clone(), thumbprint.clone()));
     info!("Set HTTP challenge for domain: {}", domain);
     ControlResponse::Success {
-        data: None,
+        data: empty(),
     }
 }
 
@@ -118,7 +122,7 @@ async fn clear_http_challenge(config: SharedConfig, domain: String, token: Strin
             cfg.active_challenges.remove(&domain);
             info!("Cleared HTTP challenge for domain: {}", domain);
             ControlResponse::Success {
-                data: None,
+                data: empty(),
             }
         }
         _ => ControlResponse::Error {
@@ -148,7 +152,7 @@ async fn add_host(config: SharedConfig, id: String, new_host: HostConfig) -> Con
     }
     info!("Added new host with domains: {:?}", new_host.domains);
     ControlResponse::Success {
-        data: None,
+        data: empty(),
     }
 }
 
@@ -172,7 +176,7 @@ async fn update_host(
 
             info!("Updated host for ID: {}", id);
             ControlResponse::Success {
-                data: None,
+                data: empty(),
             }
         }
         None => ControlResponse::Error {
@@ -197,7 +201,7 @@ async fn remove_host(config: SharedConfig, id: String) -> ControlResponse {
                 removed_host.config.domains
             );
             ControlResponse::Success {
-                data: None,
+                data: empty(),
             }
         }
         None => ControlResponse::Error {
@@ -212,7 +216,7 @@ async fn list_hosts(config: SharedConfig) -> ControlResponse {
     let hosts_json =
         serde_json::to_value(&cfg.hosts).unwrap_or(serde_json::Value::Null);
     ControlResponse::Success {
-        data: Some(hosts_json),
+        data: hosts_json,
     }
 }
 
@@ -222,7 +226,7 @@ async fn get_host(config: SharedConfig, id: String) -> ControlResponse {
         Some(host) => {
             let host_json = serde_json::to_value(&host.config).unwrap_or(serde_json::Value::Null);
             ControlResponse::Success {
-                data: Some(host_json),
+                data: host_json,
             }
         }
         None => ControlResponse::Error {
@@ -238,7 +242,7 @@ async fn reload_config(config: SharedConfig) -> ControlResponse {
             *cfg = new_config;
             info!("Configuration reloaded from file");
             ControlResponse::Success {
-                data: None,
+                data: empty(),
             }
         }
         Err(_) => ControlResponse::Error {
@@ -271,7 +275,7 @@ async fn add_certificate(config: SharedConfig, certificate: radiance_types::conf
     }
     info!("Added new certificate with ID: {}", certificate.id());
     ControlResponse::Success {
-        data: None,
+        data: empty(),
     }
 }
 
@@ -291,7 +295,7 @@ async fn remove_certificate(config: SharedConfig, id: String) -> ControlResponse
     }
     info!("Removed certificate with ID: {}", id);
     ControlResponse::Success {
-        data: None,
+        data: empty(),
     }
 }
 
@@ -300,7 +304,7 @@ async fn list_certificates(config: SharedConfig) -> ControlResponse {
     let cfg: Config = (&*cfg).into();
     let certs_json = serde_json::to_value(&cfg.certificates).unwrap_or(serde_json::Value::Null);
     ControlResponse::Success {
-        data: Some(certs_json),
+        data: certs_json,
     }
 }
 
@@ -310,7 +314,7 @@ async fn get_certificate(config: SharedConfig, id: String) -> ControlResponse {
         Some(cert) => {
             let cert_json = serde_json::to_value(&cert.config).unwrap_or(serde_json::Value::Null);
             ControlResponse::Success {
-                data: Some(cert_json),
+                data: cert_json,
             }
         }
         None => ControlResponse::Error {

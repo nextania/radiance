@@ -24,14 +24,15 @@ pub enum ControlCommand {
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum ControlResponse {
     Success {
-        data: Option<serde_json::Value>,
+        data: serde_json::Value,
     },
     Error {
         error: ControlError,
     },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "error", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ControlError {
     HostNotFound,
     HostAlreadyExists,
@@ -42,7 +43,6 @@ pub enum ControlError {
     FailedToReload,
     FailedToSave,
     MalformedCommand,
-    InternalError(String),
 }
 
 impl std::fmt::Display for ControlError {
@@ -57,8 +57,10 @@ impl std::fmt::Display for ControlError {
             ControlError::FailedToReload => write!(f, "Failed to reload configuration"),
             ControlError::FailedToSave => write!(f, "Failed to save configuration"),
             ControlError::MalformedCommand => write!(f, "Malformed command"),
-            ControlError::InternalError(msg) => write!(f, "Internal error: {}", msg),
         }
     }
 }
 impl std::error::Error for ControlError {}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Empty {}

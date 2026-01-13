@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use actix_web::ResponseError;
+use radiance_types::ControlError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -15,6 +16,7 @@ pub enum Error {
     OidcConfigurationError,
     OidcServerError,
     BackchannelLogoutError,
+    ControlSocketError,
     
     RateLimited {
         limit: u64,
@@ -43,6 +45,7 @@ impl ResponseError for Error {
             Error::OidcConfigurationError => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
             Error::OidcServerError => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
             Error::BackchannelLogoutError => actix_web::http::StatusCode::BAD_REQUEST,
+            Error::ControlSocketError => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
             Error::RateLimited { .. } => actix_web::http::StatusCode::TOO_MANY_REQUESTS,
         }
     }
@@ -58,4 +61,46 @@ impl From<mongodb::error::Error> for Error {
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum ApiError {
+    GeneralError(crate::errors::Error),
+    ControlError(ControlError),
+}
+
+impl ApiError {
+    pub fn from_control_error(error: ControlError) -> Self {
+        ApiError::ControlError(error)
+    }
+}
+
+impl std::error::Error for ApiError {}
+
+impl Display for ApiError {
+    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        unimplemented!()
+    }
+}
+
+impl ResponseError for ApiError {
+    fn status_code(&self) -> actix_web::http::StatusCode {
+        match self {
+            ApiError::GeneralError(error) => error.status_code(),
+            ApiError::ControlError(control_error) => match control_error {
+                ControlError::HostNotFound => actix_web::http::StatusCode::NOT_FOUND,
+                ControlError::HostAlreadyExists => actix_web::http::StatusCode::CONFLICT,
+                ControlError::CertificateNotFound => actix_web::http::StatusCode::NOT_FOUND,
+                ControlError::CertificateAlreadyExists => actix_web::http::StatusCode::CONFLICT,
+                ControlError::InvalidCertificate => actix_web::http::StatusCode::BAD_REQUEST,
+                ControlError::HttpChallengeNotFound => actix_web::http::StatusCode::NOT_FOUND,
+                ControlError::FailedToReload => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+                ControlError::FailedToSave => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+                ControlError::MalformedCommand => actix_web::http::StatusCode::BAD_REQUEST,
+            },
+        }
+    }
+
+    fn error_response(&self) -> actix_web::HttpResponse {
+        actix_web::HttpResponse::build(self.status_code()).json(self)
+    }
+}

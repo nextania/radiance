@@ -37,7 +37,7 @@ fn main() {
 fn send_command(
     socket_path: &str,
     command: ControlCommand,
-) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let mut stream = UnixStream::connect(socket_path)?;
     let command_json = serde_json::to_string(&command)? + "\n";
     stream.write_all(command_json.as_bytes())?;
@@ -57,23 +57,13 @@ fn run_command(socket_path: &str, command: Commands) -> Result<(), Box<dyn std::
     match command {
         Commands::ListHosts => {
             let response = send_command(socket_path, ControlCommand::ListHosts)?;
-
-            if let Some(data) = response {
-                println!("✓ Hosts:");
-                println!("{}", serde_json::to_string_pretty(&data)?);
-            } else {
-                eprintln!("✗ Expected a response with data");
-            }
+            println!("✓ Hosts:");
+            println!("{}", serde_json::to_string_pretty(&response)?);
         },
         Commands::GetHost { id } => {
             let response = send_command(socket_path, ControlCommand::GetHost { id })?;
-
-            if let Some(data) = response {
-                println!("✓ Host:");
-                println!("{}", serde_json::to_string_pretty(&data)?);
-            } else {
-                eprintln!("✗ Expected a response with data");
-            }
+            println!("✓ Host:");
+            println!("{}", serde_json::to_string_pretty(&response)?);
         },
         Commands::Reload => {
             send_command(socket_path, ControlCommand::Reload)?;
