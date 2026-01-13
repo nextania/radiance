@@ -23,10 +23,7 @@ enum Commands {
         id: String,
     },
     Reload,
-    HashPassword {
-        #[arg(short, long)]
-        password: String,
-    },
+    HashPassword,
 }
 
 fn main() {
@@ -38,7 +35,10 @@ fn main() {
 }
 
 fn run_command(socket_path: &str, command: Commands) -> Result<(), Box<dyn std::error::Error>> {
-    if let Commands::HashPassword { password } = &command {
+    if let Commands::HashPassword = &command {
+        write!(std::io::stdout(), "Enter password: ")?;
+        std::io::stdout().flush()?;
+        let password = readpass::from_tty()?;
         let hashed = Argon2::default()
             .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
             .map_err(|e| format!("Fail to hash password: {}", e))?

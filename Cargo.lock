@@ -3528,6 +3528,7 @@ dependencies = [
  "clap",
  "radiance-types",
  "rand_core 0.6.4",
+ "readpass",
  "serde",
  "serde_json",
 ]
@@ -3650,6 +3651,17 @@ dependencies = [
  "time",
  "x509-parser 0.18.0",
  "yasna",
+]
+
+[[package]]
+name = "readpass"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8facb29a2396d5a7f739114f8ca7007bf6fe69ce1ec8e066a9c13bd9e2f1b252"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
