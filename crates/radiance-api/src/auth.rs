@@ -308,3 +308,16 @@ pub async fn logout_backchannel(
         Err(Error::BackchannelLogoutError)
     }
 }
+
+#[derive(Debug, Serialize)]
+pub struct ValidateResponse {
+    pub expires_at: u64,
+}
+
+pub async fn validate(
+    session: web::ReqData<Session>,
+) -> Result<HttpResponse, Error> {
+    Ok(HttpResponse::Ok().json(ValidateResponse {
+        expires_at: session.expires_at,
+    }))
+}

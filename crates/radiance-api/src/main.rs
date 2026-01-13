@@ -115,6 +115,7 @@ async fn main() -> Result<()> {
             .route("/oidc/{provider}", web::get().to(auth::oidc_login))
             .route("/oidc/{provider}/backchannel-logout", web::post().to(auth::logout_backchannel))
             .route("/callback", web::get().to(auth::oidc_callback))
+            .route("/session", web::get().wrap(AuthMiddleware).to(auth::validate))
             .route("/session", web::delete().wrap(AuthMiddleware).to(auth::logout))
             .service(web::scope("/hosts")
                 .wrap(AuthMiddleware)
