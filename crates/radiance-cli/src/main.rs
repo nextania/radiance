@@ -34,44 +34,62 @@ fn main() {
     }
 }
 
-fn run_command(socket_path: &str, command: Commands) -> Result<(), Box<dyn std::error::Error>> {
-    if let Commands::HashPassword = &command {
-        write!(std::io::stdout(), "Enter password: ")?;
-        std::io::stdout().flush()?;
-        let password = readpass::from_tty()?;
-        let hashed = Argon2::default()
-            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
-            .map_err(|e| format!("Fail to hash password: {}", e))?
-            .to_string();
-        println!("Hashed password: {}", hashed);
-        return Ok(());
-    }
-    let control_command = match command {
-        Commands::ListHosts => ControlCommand::ListHosts,
-        Commands::GetHost { id } => ControlCommand::GetHost { id },
-        Commands::Reload => ControlCommand::Reload,
-        _ => unreachable!()
-    };
+fn send_command(
+    socket_path: &str,
+    command: ControlCommand,
+) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
     let mut stream = UnixStream::connect(socket_path)?;
-    let command_json = serde_json::to_string(&control_command)?;
+    let command_json = serde_json::to_string(&command)? + "\n";
     stream.write_all(command_json.as_bytes())?;
-    stream.write_all(b"\n")?;
+    stream.flush()?;
+
     let mut reader = BufReader::new(stream);
-    let mut response_line = String::new();
-    reader.read_line(&mut response_line)?;
-    let response: ControlResponse = serde_json::from_str(&response_line)?;
+    let mut line = String::new();
+    reader.read_line(&mut line)?;
+    let response: ControlResponse = serde_json::from_str(&line)?;
     match response {
-        ControlResponse::Success { message, data } => {
-            println!("✓ {}", message);
-            if let Some(data) = data {
-                println!("\n{}", serde_json::to_string_pretty(&data)?);
-            }
-        }
-        ControlResponse::Error { message } => {
-            eprintln!("✗ Error: {}", message);
-            std::process::exit(1);
-        }
+        ControlResponse::Success { data } => Ok(data),
+        ControlResponse::Error { error } => Err(Box::new(error)),
     }
+}
+
+fn run_command(socket_path: &str, command: Commands) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        Commands::ListHosts => {
+            let response = send_command(socket_path, ControlCommand::ListHosts)?;
+
+            if let Some(data) = response {
+                println!("✓ Hosts:");
+                println!("{}", serde_json::to_string_pretty(&data)?);
+            } else {
+                eprintln!("✗ Expected a response with data");
+            }
+        },
+        Commands::GetHost { id } => {
+            let response = send_command(socket_path, ControlCommand::GetHost { id })?;
+
+            if let Some(data) = response {
+                println!("✓ Host:");
+                println!("{}", serde_json::to_string_pretty(&data)?);
+            } else {
+                eprintln!("✗ Expected a response with data");
+            }
+        },
+        Commands::Reload => {
+            send_command(socket_path, ControlCommand::Reload)?;
+            println!("✓ Reload command sent successfully");
+        },
+        Commands::HashPassword => {
+            write!(std::io::stdout(), "Enter password: ")?;
+            std::io::stdout().flush()?;
+            let password = readpass::from_tty()?;
+            let hashed = Argon2::default()
+                .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+                .map_err(|e| format!("Fail to hash password: {}", e))?
+                .to_string();
+            println!("✓ Hashed password: {}", hashed);
+        }
+    };
 
     Ok(())
 }

@@ -32,7 +32,7 @@ impl ControlSocket {
         let response: ControlResponse = serde_json::from_str(&line)?;
         match response {
             ControlResponse::Success { .. } => Ok(()),
-            ControlResponse::Error { message } => Err(anyhow::anyhow!(message)),
+            ControlResponse::Error { error } => Err(anyhow::anyhow!(error)),
         }
     }
 
@@ -51,7 +51,7 @@ impl ControlSocket {
         let response: ControlResponse = serde_json::from_str(&line)?;
         match response {
             ControlResponse::Success { .. } => Ok(()),
-            ControlResponse::Error { message } => Err(anyhow::anyhow!(message)),
+            ControlResponse::Error { error } => Err(anyhow::anyhow!(error)),
         }
     }
 
@@ -67,7 +67,7 @@ impl ControlSocket {
         let response: ControlResponse = serde_json::from_str(&line)?;
         match response {
             ControlResponse::Success { .. } => Ok(()),
-            ControlResponse::Error { message } => Err(anyhow::anyhow!(message)),
+            ControlResponse::Error { error } => Err(anyhow::anyhow!(error)),
         }
     }
 }

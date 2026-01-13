@@ -1,5 +1,5 @@
 use partially::Partial;
-use radiance_types::{ControlCommand, ControlResponse};
+use radiance_types::{ControlCommand, ControlError, ControlResponse};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Arc;
@@ -70,8 +70,8 @@ async fn handle_connection(stream: UnixStream, config: SharedConfig) -> anyhow::
 
         let response = match serde_json::from_str::<ControlCommand>(trimmed) {
             Ok(command) => process_command(command, config.clone()).await,
-            Err(e) => ControlResponse::Error {
-                message: format!("Invalid command format: {}", e),
+            Err(_) => ControlResponse::Error {
+                error: ControlError::MalformedCommand,
             },
         };
 
@@ -107,7 +107,6 @@ async fn set_http_challenge(config: SharedConfig, domain: String, token: String,
     cfg.active_challenges.insert(domain.clone(), (token.clone(), thumbprint.clone()));
     info!("Set HTTP challenge for domain: {}", domain);
     ControlResponse::Success {
-        message: format!("HTTP challenge set for domain: {}", domain),
         data: None,
     }
 }
@@ -119,12 +118,11 @@ async fn clear_http_challenge(config: SharedConfig, domain: String, token: Strin
             cfg.active_challenges.remove(&domain);
             info!("Cleared HTTP challenge for domain: {}", domain);
             ControlResponse::Success {
-                message: format!("HTTP challenge cleared for domain: {}", domain),
                 data: None,
             }
         }
         _ => ControlResponse::Error {
-            message: format!("No matching HTTP challenge found for domain: {}", domain),
+            error: ControlError::HttpChallengeNotFound,
         },
     }
 }
@@ -138,22 +136,18 @@ async fn add_host(config: SharedConfig, id: String, new_host: HostConfig) -> Con
             .any(|(_, h)| h.config.domains.contains(domain))
         {
             return ControlResponse::Error {
-                message: format!("Domain '{}' already exists", domain),
+                error: ControlError::HostAlreadyExists,
             };
         }
     }
     cfg.hosts.insert(id, Arc::new(new_host.clone().into()));
-    if let Err(e) = cfg.save_to_file(&CONFIG_FILE).await {
+    if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
         return ControlResponse::Error {
-            message: format!("Failed to save: {}", e),
+            error: ControlError::FailedToSave,
         };
     }
     info!("Added new host with domains: {:?}", new_host.domains);
     ControlResponse::Success {
-        message: format!(
-            "Host added successfully with domains: {:?}",
-            new_host.domains
-        ),
         data: None,
     }
 }
@@ -170,20 +164,19 @@ async fn update_host(
             let mut config = index.config.clone();
             config.apply_some(updated_host);
             *index = Arc::new(config.into());
-            if let Err(e) = cfg.save_to_file(&CONFIG_FILE).await {
+            if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
                 return ControlResponse::Error {
-                    message: format!("Failed to save: {}", e),
+                    error: ControlError::FailedToSave
                 };
             }
 
             info!("Updated host for ID: {}", id);
             ControlResponse::Success {
-                message: format!("Host updated successfully for ID: {}", id),
                 data: None,
             }
         }
         None => ControlResponse::Error {
-            message: format!("No host found with ID: {}", id),
+            error: ControlError::HostNotFound,
         },
     }
 }
@@ -193,9 +186,9 @@ async fn remove_host(config: SharedConfig, id: String) -> ControlResponse {
     let removed_host = cfg.hosts.remove(&id);
     match removed_host {
         Some(removed_host) => {
-            if let Err(e) = cfg.save_to_file(&CONFIG_FILE).await {
+            if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
                 return ControlResponse::Error {
-                    message: format!("Failed to save: {}", e),
+                    error: ControlError::FailedToSave
                 };
             }
 
@@ -204,15 +197,11 @@ async fn remove_host(config: SharedConfig, id: String) -> ControlResponse {
                 removed_host.config.domains
             );
             ControlResponse::Success {
-                message: format!(
-                    "Host removed successfully with domains: {:?}",
-                    removed_host.config.domains
-                ),
                 data: None,
             }
         }
         None => ControlResponse::Error {
-            message: format!("No host found with ID: {}", id),
+            error: ControlError::HostNotFound,
         },
     }
 }
@@ -223,7 +212,6 @@ async fn list_hosts(config: SharedConfig) -> ControlResponse {
     let hosts_json =
         serde_json::to_value(&cfg.hosts).unwrap_or(serde_json::Value::Null);
     ControlResponse::Success {
-        message: format!("Found {} host(s)", cfg.hosts.len()),
         data: Some(hosts_json),
     }
 }
@@ -234,12 +222,11 @@ async fn get_host(config: SharedConfig, id: String) -> ControlResponse {
         Some(host) => {
             let host_json = serde_json::to_value(&host.config).unwrap_or(serde_json::Value::Null);
             ControlResponse::Success {
-                message: format!("Found host for ID: {}", id),
                 data: Some(host_json),
             }
         }
         None => ControlResponse::Error {
-            message: format!("No host found with ID: {}", id),
+            error: ControlError::HostNotFound,
         },
     }
 }
@@ -251,12 +238,11 @@ async fn reload_config(config: SharedConfig) -> ControlResponse {
             *cfg = new_config;
             info!("Configuration reloaded from file");
             ControlResponse::Success {
-                message: "Configuration reloaded successfully".to_string(),
                 data: None,
             }
         }
-        Err(e) => ControlResponse::Error {
-            message: format!("Failed to reload configuration: {}", e),
+        Err(_) => ControlResponse::Error {
+            error: ControlError::FailedToReload,
         },
     }
 }
@@ -265,27 +251,26 @@ async fn add_certificate(config: SharedConfig, certificate: radiance_types::conf
     let mut cfg = config.write().await;
     if cfg.certificates.iter().any(|c| c.config.id() == certificate.id()) {
         return ControlResponse::Error {
-            message: format!("Certificate with ID '{}' already exists", certificate.id()),
+            error: ControlError::CertificateAlreadyExists,
         };
     }
     let cert_key = match certificate.read_cert() {
         Ok(cert) => cert,
-        Err(e) => return ControlResponse::Error {
-            message: format!("Failed to load certificate: {}", e),
+        Err(_) => return ControlResponse::Error {
+            error: ControlError::InvalidCertificate,
         },
     };
     cfg.certificates.push(Arc::new(crate::config::TlsCertConfigWithKey {
         config: certificate.clone(),
         cert: cert_key,
     }));
-    if let Err(e) = cfg.save_to_file(&CONFIG_FILE).await {
+    if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
         return ControlResponse::Error {
-            message: format!("Failed to save: {}", e),
+            error: ControlError::FailedToSave,
         };
     }
     info!("Added new certificate with ID: {}", certificate.id());
     ControlResponse::Success {
-        message: format!("Certificate added successfully with ID: {}", certificate.id()),
         data: None,
     }
 }
@@ -296,17 +281,16 @@ async fn remove_certificate(config: SharedConfig, id: String) -> ControlResponse
     cfg.certificates.retain(|c| c.config.id() != id);
     if cfg.certificates.len() == initial_len {
         return ControlResponse::Error {
-            message: format!("No certificate found with ID: {}", id),
+            error: ControlError::CertificateNotFound,
         };
     }
-    if let Err(e) = cfg.save_to_file(&CONFIG_FILE).await {
+    if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
         return ControlResponse::Error {
-            message: format!("Failed to save: {}", e),
+            error: ControlError::FailedToSave,
         };
     }
     info!("Removed certificate with ID: {}", id);
     ControlResponse::Success {
-        message: format!("Certificate removed successfully with ID: {}", id),
         data: None,
     }
 }
@@ -316,7 +300,6 @@ async fn list_certificates(config: SharedConfig) -> ControlResponse {
     let cfg: Config = (&*cfg).into();
     let certs_json = serde_json::to_value(&cfg.certificates).unwrap_or(serde_json::Value::Null);
     ControlResponse::Success {
-        message: format!("Found {} certificate(s)", cfg.certificates.len()),
         data: Some(certs_json),
     }
 }
@@ -327,12 +310,11 @@ async fn get_certificate(config: SharedConfig, id: String) -> ControlResponse {
         Some(cert) => {
             let cert_json = serde_json::to_value(&cert.config).unwrap_or(serde_json::Value::Null);
             ControlResponse::Success {
-                message: format!("Found certificate for ID: {}", id),
                 data: Some(cert_json),
             }
         }
         None => ControlResponse::Error {
-            message: format!("No certificate found with ID: {}", id),
+            error: ControlError::CertificateNotFound,
         },
     }
 }
