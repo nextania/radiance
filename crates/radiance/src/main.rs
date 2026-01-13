@@ -1,8 +1,9 @@
-mod config;
-mod control_socket;
+pub mod config;
+pub mod control_socket;
 pub mod environment;
 pub mod outpost;
-mod proxy;
+pub mod proxy;
+pub mod transport;
 pub mod vault;
 pub mod virtual_connector;
 
@@ -13,7 +14,7 @@ use proxy::RadianceProxy;
 use rustls::{sign::CertifiedKey, version};
 use std::{collections::HashMap, sync::Arc, thread};
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 use crate::{config::FullConfig, environment::CONFIG_FILE, proxy::normalize_match_domain};
@@ -107,6 +108,13 @@ async fn main() {
                 .expect("Failed to initialize outposts");
         });
     }
+
+    let transport_config = shared_config.clone();
+    tokio::spawn(async move {
+        if let Err(e) = transport::start_transports(transport_config).await {
+            error!("Failed to start transports: {}", e);
+        }
+    });
 
     let mut proxy = Server::new(Some(Opt::default())).unwrap();
     proxy.bootstrap();

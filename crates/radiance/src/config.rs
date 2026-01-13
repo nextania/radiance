@@ -89,6 +89,21 @@ pub struct Config {
     pub hosts: HashMap<String, HostConfig>,
     pub certificates: Vec<TlsCertConfig>,
     pub outposts: Option<HashMap<String, OutpostConfig>>,
+    pub transports: Option<HashMap<String, TransportConfig>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TransportConfig {
+    pub r#type: TransportType,
+    pub listen_address: String,
+    pub upstreams: Vec<ServerConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TransportType {
+    Tcp,
+    Udp,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -103,6 +118,7 @@ pub struct FullConfig {
     pub hosts: HashMap<String, Arc<HostConfigWithBalancer>>,
     pub certificates: Vec<Arc<TlsCertConfigWithKey>>,
     pub outposts: Option<HashMap<String, OutpostConfig>>,
+    pub transports: Option<HashMap<String, TransportConfig>>,
     pub active_challenges: HashMap<String, (String, String)>, // domain -> (token, thumbprint)
 }
 
@@ -178,6 +194,7 @@ impl From<Config> for FullConfig {
                 })
                 .collect(),
             outposts: cfg.outposts,
+            transports: cfg.transports,
             active_challenges: HashMap::new(),
         }
     }
@@ -201,6 +218,7 @@ impl From<&FullConfig> for Config {
                 .map(|c| c.config.clone())
                 .collect(),
             outposts: cfg.outposts.clone(),
+            transports: cfg.transports.clone(),
         }
     }
 }
