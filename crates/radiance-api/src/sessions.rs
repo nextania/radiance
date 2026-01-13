@@ -41,7 +41,7 @@ impl Session {
         Ok(())
     }
 
-    pub async fn delete_oidc(provider: &String, subject: &String, sid: &Option<String>) -> mongodb::error::Result<()> {
+    pub async fn delete_oidc(provider: &str, subject: &str, sid: &Option<String>) -> mongodb::error::Result<()> {
         let collection = get_collection();
         let mut query = doc! { 
             "oidc_data.provider": provider,
@@ -54,7 +54,7 @@ impl Session {
         Ok(())
     }
 
-    pub async fn validate(token: &String) -> mongodb::error::Result<Option<Session>> {    
+    pub async fn validate(token: &str) -> mongodb::error::Result<Option<Session>> {    
         let collection = get_collection();
         let query = collection
             .find_one(doc! {

@@ -78,8 +78,8 @@ where
                     .headers()
                     .get("Authorization")
                     .ok_or(Error::MissingToken)?;
-                let token = &authorization.to_str().map_err(|_| Error::InvalidToken)?;
-                Session::validate(&token.to_string()).await?.ok_or(Error::InvalidToken)
+                let token = authorization.to_str().map_err(|_| Error::InvalidToken)?;
+                Session::validate(token).await?.ok_or(Error::InvalidToken)
             }.await.map_err(|e| actix_web::Error::from(e))?;
             req.extensions_mut().insert(session);
             srv.call(req).await
