@@ -1,5 +1,5 @@
 use actix_web::{
-    Error, HttpMessage, HttpResponse, dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready}, error::{ErrorForbidden, ErrorInternalServerError, ErrorUnauthorized}, web
+    HttpMessage, HttpResponse, dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready}, web
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use dashmap::DashMap;
@@ -15,7 +15,7 @@ use std::future::{ready, Ready};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::{config::ApiConfig, sessions::{OidcSessionData, Session}};
+use crate::{config::ApiConfig, sessions::{OidcSessionData, Session}, errors::Error};
 
 static ASYNC_HTTP_CLIENT: Lazy<reqwest::Client> =
     Lazy::new(|| ClientBuilder::new().redirect(Policy::none()).build().unwrap());
@@ -36,12 +36,12 @@ fn verify_password(password_hash: &str, password: &str) -> bool {
 
 impl<S, B> Transform<S, ServiceRequest> for AuthMiddleware
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error> + 'static,
     S::Future: 'static,
     B: 'static,
 {
     type Response = ServiceResponse<B>;
-    type Error = Error;
+    type Error = actix_web::Error;
     type InitError = ();
     type Transform = AuthMiddlewareService<S>;
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
@@ -59,12 +59,12 @@ pub struct AuthMiddlewareService<S> {
 
 impl<S, B> Service<ServiceRequest> for AuthMiddlewareService<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = actix_web::Error> + 'static,
     S::Future: 'static,
     B: 'static,
 {
     type Response = ServiceResponse<B>;
-    type Error = Error;
+    type Error = actix_web::Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     forward_ready!(service);
@@ -72,13 +72,15 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let srv = self.service.clone();
 
-        Box::pin(async move {    
-            let authorization = req
-                .headers()
-                .get("Authorization")
-                .ok_or(ErrorUnauthorized("Missing token"))?;
-            let token = &authorization.to_str().map_err(|_| ErrorUnauthorized("Invalid token"))?;
-            let session = Session::validate(&token.to_string()).await.map_err(|_| ErrorInternalServerError("Internal error"))?.ok_or(ErrorUnauthorized("Invalid token"))?;
+        Box::pin(async move {
+            let session = async {
+                let authorization = req
+                    .headers()
+                    .get("Authorization")
+                    .ok_or(Error::MissingToken)?;
+                let token = &authorization.to_str().map_err(|_| Error::InvalidToken)?;
+                Session::validate(&token.to_string()).await?.ok_or(Error::InvalidToken)
+            }.await.map_err(|e| actix_web::Error::from(e))?;
             req.extensions_mut().insert(session);
             srv.call(req).await
         })
@@ -138,7 +140,7 @@ pub async fn oidc_login(
 ) -> Result<HttpResponse, Error> {
     let client = oidc_clients
         .get(provider_name.as_str())
-        .ok_or_else(|| ErrorForbidden("Unknown OIDC provider"))?;
+        .ok_or(Error::OidcNotConfigured)?;
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
     let (auth_url, csrf_token, nonce) = client
         .authorize_url(
@@ -173,31 +175,30 @@ pub async fn oidc_callback(
 ) -> Result<HttpResponse, Error> {
     let oidc_state = OIDC_SESSIONS
         .remove(&query.state)
-        .ok_or_else(|| ErrorForbidden("Invalid state"))?
+        .ok_or(Error::CredentialError)?
         .1;
     let client = oidc_clients
         .get(&oidc_state.provider)
-        .ok_or_else(|| ErrorForbidden("Unknown OIDC provider"))?;
+        .ok_or(Error::OidcNotConfigured)?;
     let token_response = client
         .exchange_code(AuthorizationCode::new(query.code.clone()))
-        .map_err(|_| ErrorForbidden("Token exchange failed"))?
+        .map_err(|_| Error::OidcServerError)?
         .set_pkce_verifier(oidc_state.pkce_verifier)
         .request_async(&*ASYNC_HTTP_CLIENT)
         .await
-        .map_err(|_| ErrorForbidden("Token exchange failed"))?;
+        .map_err(|_| Error::OidcServerError)?;
     let id_token = token_response
         .id_token()
-        .ok_or_else(|| ErrorForbidden("No ID token in response"))?;
+        .ok_or(Error::OidcServerError)?;
     let claims = id_token
         .claims(&client.id_token_verifier(), &oidc_state.nonce)
-        .map_err(|_| ErrorForbidden(format!("Token verification failed")))?;
+        .map_err(|_| Error::CredentialError)?;
 
     let sub = claims.subject().as_str().to_string();
     let session = Session::create(Some(OidcSessionData {
         provider: oidc_state.provider.clone(),
         subject: sub,
-    })).await
-        .map_err(|_| ErrorInternalServerError(format!("Failed to create session")))?;
+    })).await?;
     let continue_url = format!("/authenticate?token={}&continue={}", session.token, oidc_state.r#continue.clone().unwrap_or_else(|| "/".to_string()));
     Ok(HttpResponse::Found()
         .append_header(("Location", continue_url))
@@ -222,12 +223,11 @@ pub async fn password_login(
     let password_hash = config
         .password_hash
         .as_ref()
-        .ok_or_else(|| ErrorUnauthorized("Password authentication not enabled"))?;
+        .ok_or(Error::PasswordNotConfigured)?;
     if !verify_password(password_hash, &credentials.password) {
-        return Err(ErrorUnauthorized("Invalid password"));
+        return Err(Error::CredentialError);
     }
-    let session = Session::create(None).await
-        .map_err(|_| ErrorInternalServerError(format!("Failed to create session")))?;
+    let session = Session::create(None).await?;
     Ok(HttpResponse::Ok().json(PasswordLoginResponse {
         token: session.token,
         expires_at: session.expires_at,
@@ -235,8 +235,8 @@ pub async fn password_login(
 }
 
 pub async fn logout(session: web::ReqData<Session>) -> Result<HttpResponse, Error> {
-    session.delete().await.map_err(|_| ErrorInternalServerError(format!("Failed to delete session")))?;
+    session.delete().await?;
     Ok(HttpResponse::Ok().json(serde_json::json!({
-        "message": "Logged out successfully"
+        "success": true
     })))
 }

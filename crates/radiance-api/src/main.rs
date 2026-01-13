@@ -1,9 +1,10 @@
-mod auth;
-mod config;
-mod handlers;
-mod socket_client;
+pub mod auth;
+pub mod config;
+pub mod handlers;
+pub mod socket_client;
 pub mod sessions;
 pub mod environment;
+pub mod errors;
 
 use actix_files::{Files, NamedFile};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
