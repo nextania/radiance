@@ -236,7 +236,5 @@ pub async fn password_login(
 
 pub async fn logout(session: web::ReqData<Session>) -> Result<HttpResponse, Error> {
     session.delete().await?;
-    Ok(HttpResponse::Ok().json(serde_json::json!({
-        "success": true
-    })))
+    Ok(HttpResponse::Ok().json(serde_json::json!({})))
 }
