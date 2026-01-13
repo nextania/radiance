@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 use tracing::{error, info};
 
 use radiance_types::{HostConfig, PartialHostConfig};
-use crate::config::{Config, FullConfig, };
+use crate::config::{Config, FullConfig, TlsCertConfigExt};
 use crate::environment::CONFIG_FILE;
 
 pub type SharedConfig = Arc<RwLock<FullConfig>>;
@@ -95,6 +95,10 @@ async fn process_command(command: ControlCommand, config: SharedConfig) -> Contr
         ControlCommand::Reload => reload_config(config).await,
         ControlCommand::ClearHttpChallenge { domain, token } => clear_http_challenge(config, domain, token).await,
         ControlCommand::SetHttpChallenge { domain, token, thumbprint } => set_http_challenge(config, domain, token, thumbprint).await,
+        ControlCommand::AddCertificate { certificate } => add_certificate(config, certificate).await,
+        ControlCommand::RemoveCertificate { id } => remove_certificate(config, id).await,
+        ControlCommand::ListCertificates => list_certificates(config).await,
+        ControlCommand::GetCertificate { id } => get_certificate(config, id).await,
     }
 }
 
@@ -253,6 +257,82 @@ async fn reload_config(config: SharedConfig) -> ControlResponse {
         }
         Err(e) => ControlResponse::Error {
             message: format!("Failed to reload configuration: {}", e),
+        },
+    }
+}
+
+async fn add_certificate(config: SharedConfig, certificate: radiance_types::config::TlsCertConfig) -> ControlResponse {
+    let mut cfg = config.write().await;
+    if cfg.certificates.iter().any(|c| c.config.id() == certificate.id()) {
+        return ControlResponse::Error {
+            message: format!("Certificate with ID '{}' already exists", certificate.id()),
+        };
+    }
+    let cert_key = match certificate.read_cert() {
+        Ok(cert) => cert,
+        Err(e) => return ControlResponse::Error {
+            message: format!("Failed to load certificate: {}", e),
+        },
+    };
+    cfg.certificates.push(Arc::new(crate::config::TlsCertConfigWithKey {
+        config: certificate.clone(),
+        cert: cert_key,
+    }));
+    if let Err(e) = cfg.save_to_file(&CONFIG_FILE).await {
+        return ControlResponse::Error {
+            message: format!("Failed to save: {}", e),
+        };
+    }
+    info!("Added new certificate with ID: {}", certificate.id());
+    ControlResponse::Success {
+        message: format!("Certificate added successfully with ID: {}", certificate.id()),
+        data: None,
+    }
+}
+
+async fn remove_certificate(config: SharedConfig, id: String) -> ControlResponse {
+    let mut cfg = config.write().await;
+    let initial_len = cfg.certificates.len();
+    cfg.certificates.retain(|c| c.config.id() != id);
+    if cfg.certificates.len() == initial_len {
+        return ControlResponse::Error {
+            message: format!("No certificate found with ID: {}", id),
+        };
+    }
+    if let Err(e) = cfg.save_to_file(&CONFIG_FILE).await {
+        return ControlResponse::Error {
+            message: format!("Failed to save: {}", e),
+        };
+    }
+    info!("Removed certificate with ID: {}", id);
+    ControlResponse::Success {
+        message: format!("Certificate removed successfully with ID: {}", id),
+        data: None,
+    }
+}
+
+async fn list_certificates(config: SharedConfig) -> ControlResponse {
+    let cfg = config.read().await;
+    let cfg: Config = (&*cfg).into();
+    let certs_json = serde_json::to_value(&cfg.certificates).unwrap_or(serde_json::Value::Null);
+    ControlResponse::Success {
+        message: format!("Found {} certificate(s)", cfg.certificates.len()),
+        data: Some(certs_json),
+    }
+}
+
+async fn get_certificate(config: SharedConfig, id: String) -> ControlResponse {
+    let cfg = config.read().await;
+    match cfg.certificates.iter().find(|c| c.config.id() == id) {
+        Some(cert) => {
+            let cert_json = serde_json::to_value(&cert.config).unwrap_or(serde_json::Value::Null);
+            ControlResponse::Success {
+                message: format!("Found certificate for ID: {}", id),
+                data: Some(cert_json),
+            }
+        }
+        None => ControlResponse::Error {
+            message: format!("No certificate found with ID: {}", id),
         },
     }
 }

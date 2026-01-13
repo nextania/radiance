@@ -14,65 +14,48 @@ use pingora::{
 use pingora_load_balancing::{
     Backend, Backends, LoadBalancer, discovery::Static, prelude::RoundRobin,
 };
-use radiance_types::{HostConfig, ServerConfig};
+use radiance_types::{HostConfig, ServerConfig, TlsCertConfig};
 use rustls::{crypto::{ring::sign::any_supported_type}, sign::CertifiedKey};
 use serde::{Deserialize, Serialize};
 
 use crate::virtual_connector::VirtualConnector;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum TlsCertConfig {
-    Local {
-        id: String,
-        cert_file: String,
-        key_file: String,
-    },
-    Vault {
-        id: String,
-        vault_path: String,
-    },
+pub trait TlsCertConfigExt {
+    fn read_cert(&self) -> anyhow::Result<rustls::sign::CertifiedKey>;
 }
 
-impl TlsCertConfig {
-    pub fn read_cert(&self) -> anyhow::Result<rustls::sign::CertifiedKey> {
+impl TlsCertConfigExt for TlsCertConfig {
+    fn read_cert(&self) -> anyhow::Result<rustls::sign::CertifiedKey> {
         match self {
             TlsCertConfig::Local {
                 cert_file,
                 key_file,
                 ..
-            } => self.read_local_cert(cert_file, key_file),
+            } => read_local_cert(cert_file, key_file),
             TlsCertConfig::Vault { .. } => {
                 Err(anyhow::anyhow!("Vault certificate loading not implemented"))
             }
         }
     }
-    fn read_local_cert(
-        &self,
-        cert_file_path: &str,
-        key_file_path: &str,
-    ) -> anyhow::Result<rustls::sign::CertifiedKey> {
-        let cert_file = std::fs::File::open(cert_file_path)?;
-        let mut reader = std::io::BufReader::new(cert_file);
-        let certs: Result<Vec<_>, _> = rustls_pemfile::certs(&mut reader).collect();
-        let certs = certs?;
-        let key_file = std::fs::File::open(key_file_path)?;
-        let mut reader = std::io::BufReader::new(key_file);
-        let keys = rustls_pemfile::private_key(&mut reader)?;
-        let key = keys.ok_or(anyhow::anyhow!(
-            "No private keys found in {}",
-            key_file_path
-        ))?;
-        let certified_key = rustls::sign::CertifiedKey::new(certs, any_supported_type(&key)?);
-        Ok(certified_key)
-    }
+}
 
-    pub fn id(&self) -> &str {
-        match self {
-            TlsCertConfig::Local { id, .. } => id,
-            TlsCertConfig::Vault { id, .. } => id,
-        }
-    }
+fn read_local_cert(
+    cert_file_path: &str,
+    key_file_path: &str,
+) -> anyhow::Result<rustls::sign::CertifiedKey> {
+    let cert_file = std::fs::File::open(cert_file_path)?;
+    let mut reader = std::io::BufReader::new(cert_file);
+    let certs: Result<Vec<_>, _> = rustls_pemfile::certs(&mut reader).collect();
+    let certs = certs?;
+    let key_file = std::fs::File::open(key_file_path)?;
+    let mut reader = std::io::BufReader::new(key_file);
+    let keys = rustls_pemfile::private_key(&mut reader)?;
+    let key = keys.ok_or(anyhow::anyhow!(
+        "No private keys found in {}",
+        key_file_path
+    ))?;
+    let certified_key = rustls::sign::CertifiedKey::new(certs, any_supported_type(&key)?);
+    Ok(certified_key)
 }
 
 pub struct TlsCertConfigWithKey {

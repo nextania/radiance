@@ -1,5 +1,5 @@
 use actix_web::{web, HttpResponse, Error, error::ErrorInternalServerError};
-use radiance_types::config::{HostConfig, PartialHostConfig};
+use radiance_types::config::{HostConfig, PartialHostConfig, TlsCertConfig};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -122,6 +122,53 @@ pub async fn clear_http_challenge(
 ) -> Result<HttpResponse, Error> {
     let response = client
         .clear_http_challenge(request.domain.clone(), request.token.clone())
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    Ok(HttpResponse::Ok().json(response))
+}
+
+pub async fn add_certificate(
+    client: web::Data<Arc<ControlSocketClient>>,
+    certificate: web::Json<TlsCertConfig>,
+) -> Result<HttpResponse, Error> {
+    let response = client
+        .add_certificate(certificate.into_inner())
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    Ok(HttpResponse::Ok().json(response))
+}
+
+pub async fn remove_certificate(
+    client: web::Data<Arc<ControlSocketClient>>,
+    id: web::Path<String>,
+) -> Result<HttpResponse, Error> {
+    let response = client
+        .remove_certificate(id.into_inner())
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    Ok(HttpResponse::Ok().json(response))
+}
+
+pub async fn list_certificates(
+    client: web::Data<Arc<ControlSocketClient>>,
+) -> Result<HttpResponse, Error> {
+    let response = client
+        .list_certificates()
+        .await
+        .map_err(ErrorInternalServerError)?;
+
+    Ok(HttpResponse::Ok().json(response))
+}
+
+pub async fn get_certificate(
+    client: web::Data<Arc<ControlSocketClient>>,
+    id: web::Path<String>,
+) -> Result<HttpResponse, Error> {
+    let response = client
+        .get_certificate(id.into_inner())
         .await
         .map_err(ErrorInternalServerError)?;
 

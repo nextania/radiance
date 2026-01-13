@@ -80,4 +80,20 @@ impl ControlSocketClient {
         self.send_command(ControlCommand::ClearHttpChallenge { domain, token })
             .await
     }
+
+    pub async fn add_certificate(&self, certificate: radiance_types::config::TlsCertConfig) -> Result<ControlResponse> {
+        self.send_command(ControlCommand::AddCertificate { certificate }).await
+    }
+
+    pub async fn remove_certificate(&self, id: String) -> Result<ControlResponse> {
+        self.send_command(ControlCommand::RemoveCertificate { id }).await
+    }
+
+    pub async fn list_certificates(&self) -> Result<ControlResponse> {
+        self.send_command(ControlCommand::ListCertificates).await
+    }
+
+    pub async fn get_certificate(&self, id: String) -> Result<ControlResponse> {
+        self.send_command(ControlCommand::GetCertificate { id }).await
+    }
 }

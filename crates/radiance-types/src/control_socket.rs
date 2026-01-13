@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{HostConfig, PartialHostConfig};
+use crate::config::TlsCertConfig;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ControlCommand {
@@ -13,6 +14,10 @@ pub enum ControlCommand {
     GetHost { id: String },
     SetHttpChallenge { domain: String, token: String, thumbprint: String },
     ClearHttpChallenge { domain: String, token: String },
+    AddCertificate { certificate: TlsCertConfig },
+    RemoveCertificate { id: String },
+    ListCertificates,
+    GetCertificate { id: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
