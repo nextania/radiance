@@ -234,6 +234,7 @@ pub struct PasswordLogin {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PasswordLoginResponse {
     pub token: String,
     pub expires_at: u64,
@@ -310,6 +311,7 @@ pub async fn logout_backchannel(
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ValidateResponse {
     pub expires_at: u64,
 }
