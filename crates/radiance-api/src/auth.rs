@@ -7,10 +7,10 @@ use futures_util::future::LocalBoxFuture;
 use lazy_static::lazy_static;
 use mongodb::bson::doc;
 use once_cell::sync::Lazy;
-use openidconnect::{AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse, core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata}};
+use openidconnect::{AdditionalClaims, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken, EmptyExtraTokenFields, EndpointMaybeSet, EndpointNotSet, EndpointSet, IdToken, IdTokenFields, IssuerUrl, Nonce, NonceVerifier, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, StandardErrorResponse, StandardTokenResponse, TokenResponse, core::{CoreAuthDisplay, CoreAuthPrompt, CoreAuthenticationFlow, CoreClient, CoreErrorResponseType, CoreGenderClaim, CoreIdToken, CoreJsonWebKey, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreProviderMetadata, CoreRevocableToken, CoreRevocationErrorResponse, CoreTokenIntrospectionResponse, CoreTokenResponse, CoreTokenType}};
 use reqwest::{ClientBuilder, redirect::Policy};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 use std::future::{ready, Ready};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -95,16 +95,37 @@ pub struct OidcCallbackQuery {
 }
 
 // this is necessary because of openidconnect crate's complex generics
-type ActualCoreClient = CoreClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointMaybeSet, EndpointMaybeSet>;
+type ActualClient = Client<
+    SidAdditionalClaims,
+    CoreAuthDisplay,
+    CoreGenderClaim,
+    CoreJweContentEncryptionAlgorithm,
+    CoreJsonWebKey,
+    CoreAuthPrompt,
+    StandardErrorResponse<CoreErrorResponseType>,
+    ActualTokenResponse,
+    CoreTokenIntrospectionResponse,
+    CoreRevocableToken,
+    CoreRevocationErrorResponse,
+    EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointMaybeSet, EndpointMaybeSet,
+>;
 
-pub async fn resolve_oidc_clients(config: &ApiConfig) -> Result<HashMap<String, ActualCoreClient>, anyhow::Error> {
-    let mut clients: HashMap<String, ActualCoreClient> = HashMap::new();
+type ActualTokenResponse = StandardTokenResponse<IdTokenFields<
+    SidAdditionalClaims,
+    EmptyExtraTokenFields,
+    CoreGenderClaim,
+    CoreJweContentEncryptionAlgorithm,
+    CoreJwsSigningAlgorithm,
+>, CoreTokenType>;
+
+pub async fn resolve_oidc_clients(config: &ApiConfig) -> Result<HashMap<String, ActualClient>, anyhow::Error> {
+    let mut clients: HashMap<String, ActualClient> = HashMap::new();
 
     for provider in &config.oidc_providers {
         let issuer_url = IssuerUrl::new(provider.issuer_url.clone())?;
         let metadata = CoreProviderMetadata::discover_async(issuer_url, &*ASYNC_HTTP_CLIENT).await?;
 
-        let client  = CoreClient::from_provider_metadata(
+        let client  = ActualClient::from_provider_metadata(
             metadata,
             ClientId::new(provider.client_id.clone()),
             Some(ClientSecret::new(provider.client_secret.clone())),
@@ -134,7 +155,7 @@ pub struct OidcLoginQuery {
 }
 
 pub async fn oidc_login(
-    oidc_clients: web::Data<Arc<HashMap<String, ActualCoreClient>>>,
+    oidc_clients: web::Data<Arc<HashMap<String, ActualClient>>>,
     provider_name: web::Path<String>,
     query: web::Query<OidcLoginQuery>,
 ) -> Result<HttpResponse, Error> {
@@ -170,7 +191,7 @@ pub async fn oidc_login(
 }
 
 pub async fn oidc_callback(
-    oidc_clients: web::Data<Arc<HashMap<String, ActualCoreClient>>>,
+    oidc_clients: web::Data<Arc<HashMap<String, ActualClient>>>,
     query: web::Query<OidcCallbackQuery>,
 ) -> Result<HttpResponse, Error> {
     let oidc_state = OIDC_SESSIONS
@@ -195,9 +216,11 @@ pub async fn oidc_callback(
         .map_err(|_| Error::CredentialError)?;
 
     let sub = claims.subject().as_str().to_string();
+    let sid = claims.additional_claims().sid.clone();
     let session = Session::create(Some(OidcSessionData {
         provider: oidc_state.provider.clone(),
         subject: sub,
+        sid,
     })).await?;
     let continue_url = format!("/authenticate?token={}&continue={}", session.token, oidc_state.r#continue.clone().unwrap_or_else(|| "/".to_string()));
     Ok(HttpResponse::Found()
@@ -237,4 +260,51 @@ pub async fn password_login(
 pub async fn logout(session: web::ReqData<Session>) -> Result<HttpResponse, Error> {
     session.delete().await?;
     Ok(HttpResponse::Ok().json(serde_json::json!({})))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LogoutBackchannelRequest {
+    pub logout_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SidAdditionalClaims {
+    pub sid: Option<String>,
+}
+
+impl AdditionalClaims for SidAdditionalClaims {}
+
+pub struct LogoutNonceVerifier;
+impl NonceVerifier for LogoutNonceVerifier {
+    fn verify(self, nonce: Option<&Nonce>) -> Result<(), String> {
+        match nonce {
+            None => Ok(()),
+            Some(_) => Err("Nonce present in logout token".into()),
+        }
+    }
+}
+
+// see: https://auth0.com/docs/authenticate/login/logout/back-channel-logout/configure-back-channel-logout
+pub async fn logout_backchannel(
+    oidc_clients: web::Data<Arc<HashMap<String, ActualClient>>>,
+    idp: web::Path<String>, 
+    token: web::Form<LogoutBackchannelRequest>
+) -> Result<HttpResponse, Error> {
+    let client = oidc_clients
+        .get(idp.as_str())
+        .ok_or(Error::OidcNotConfigured)?;
+    let id_token: Result<IdToken<SidAdditionalClaims, CoreGenderClaim,
+    CoreJweContentEncryptionAlgorithm,
+    CoreJwsSigningAlgorithm>, serde_json::Error> = IdToken::from_str(&token.logout_token);
+    if let Ok(id_token) = id_token {
+        let claims = id_token
+            .claims(&client.id_token_verifier(), LogoutNonceVerifier)
+            .map_err(|_| Error::BackchannelLogoutError)?;
+        let sub = claims.subject().as_str().to_string();
+        Session::delete_oidc(&idp, &sub, &claims.additional_claims().sid).await
+            .map_err(|_| Error::BackchannelLogoutError)?;
+        Ok(HttpResponse::Ok().json(serde_json::json!({})))
+    } else {
+        Err(Error::BackchannelLogoutError)
+    }
 }

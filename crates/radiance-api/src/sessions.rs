@@ -24,6 +24,7 @@ pub struct Session {
 pub struct OidcSessionData {
     pub provider: String,
     pub subject: String,
+    pub sid: Option<String>,
 }
 
 pub fn get_time_millis() -> u64 {
@@ -37,6 +38,19 @@ impl Session {
     pub async fn delete(&self) -> mongodb::error::Result<()> {
         let collection = get_collection();
         collection.delete_one(doc! { "id": &self.id }).await?;
+        Ok(())
+    }
+
+    pub async fn delete_oidc(provider: &String, subject: &String, sid: &Option<String>) -> mongodb::error::Result<()> {
+        let collection = get_collection();
+        let mut query = doc! { 
+            "oidc_data.provider": provider,
+            "oidc_data.subject": subject,
+        };
+        if let Some(sid) = sid {
+            query.insert("oidc_data.sid", sid);
+        }
+        collection.delete_many(query).await?;
         Ok(())
     }
 

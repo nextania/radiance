@@ -14,6 +14,7 @@ pub enum Error {
     OidcNotConfigured,
     OidcConfigurationError,
     OidcServerError,
+    BackchannelLogoutError,
     
     RateLimited {
         limit: u64,
@@ -41,6 +42,7 @@ impl ResponseError for Error {
             Error::OidcNotConfigured => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
             Error::OidcConfigurationError => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
             Error::OidcServerError => actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Error::BackchannelLogoutError => actix_web::http::StatusCode::BAD_REQUEST,
             Error::RateLimited { .. } => actix_web::http::StatusCode::TOO_MANY_REQUESTS,
         }
     }
