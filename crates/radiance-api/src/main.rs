@@ -113,21 +113,27 @@ async fn main() -> Result<()> {
             .route("/session", web::post().to(auth::password_login))
             .route("/oidc/{provider}", web::get().to(auth::oidc_login))
             .route("/callback", web::get().to(auth::oidc_callback))
-            .service(web::scope("")
-            .wrap(AuthMiddleware)
-                .route("/session", web::delete().to(auth::logout))
-                .route("/hosts", web::get().to(handlers::list_hosts))
-                .route("/hosts", web::post().to(handlers::add_host))
-                .route("/hosts/{id}", web::get().to(handlers::get_host))
-                .route("/hosts/{id}", web::put().to(handlers::update_host))
-                .route("/hosts/{id}", web::delete().to(handlers::remove_host))
-                .route("/reload", web::post().to(handlers::reload))
+            .route("/session", web::delete().wrap(AuthMiddleware).to(auth::logout))
+            .service(web::scope("/hosts")
+                .wrap(AuthMiddleware)
+                .route("/", web::get().to(handlers::list_hosts))
+                .route("/", web::post().to(handlers::add_host))
+                .route("/{id}", web::get().to(handlers::get_host))
+                .route("/{id}", web::put().to(handlers::update_host))
+                .route("/{id}", web::delete().to(handlers::remove_host))
+            )
+            .service(web::scope("/reload")
+                .wrap(AuthMiddleware)
+                .route("/", web::post().to(handlers::reload))
+            )
+            .service(web::scope("/challenges")
+                .wrap(AuthMiddleware)
                 .route(
-                    "/challenges/http",
+                    "/http",
                     web::post().to(handlers::set_http_challenge),
                 )
                 .route(
-                    "/challenges/http",
+                    "/http",
                     web::delete().to(handlers::clear_http_challenge),
                 )
             );
