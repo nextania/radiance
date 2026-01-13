@@ -1,0 +1,13 @@
+listen = "127.0.0.1:8080"
+
+# argon2
+password_hash = ""
+
+[[oidc_providers]]
+id = "example-sso"
+display_name = "Example SSO"
+issuer_url = "https://sso.example.com"
+client_id = "your-client-id"
+client_secret = "your-client-secret"
+redirect_uri = "https://sso.example.com/auth/callback"
+logo_path = "/assets/example.svg"
