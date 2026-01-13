@@ -21,6 +21,7 @@ pub enum ControlCommand {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "lowercase")]
 pub enum ControlResponse {
     Success {
         message: String,
