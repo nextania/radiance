@@ -113,6 +113,7 @@ async fn main() -> Result<()> {
             .route("", web::get().to(capabilities))
             .route("/session", web::post().to(auth::password_login))
             .route("/oidc/{provider}", web::get().to(auth::oidc_login))
+            .route("/oidc/{provider}/backchannel-logout", web::post().to(auth::logout_backchannel))
             .route("/callback", web::get().to(auth::oidc_callback))
             .route("/session", web::delete().wrap(AuthMiddleware).to(auth::logout))
             .service(web::scope("/hosts")
