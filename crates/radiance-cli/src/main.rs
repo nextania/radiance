@@ -1,3 +1,5 @@
+use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHasher, password_hash::rand_core::OsRng};
 use clap::{Parser, Subcommand};
 use radiance_types::{ControlCommand, ControlResponse};
 use std::io::{BufRead, BufReader, Write};
@@ -21,6 +23,10 @@ enum Commands {
         id: String,
     },
     Reload,
+    HashPassword {
+        #[arg(short, long)]
+        password: String,
+    },
 }
 
 fn main() {
@@ -32,10 +38,19 @@ fn main() {
 }
 
 fn run_command(socket_path: &str, command: Commands) -> Result<(), Box<dyn std::error::Error>> {
+    if let Commands::HashPassword { password } = &command {
+        let hashed = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .map_err(|e| format!("Fail to hash password: {}", e))?
+            .to_string();
+        println!("Hashed password: {}", hashed);
+        return Ok(());
+    }
     let control_command = match command {
         Commands::ListHosts => ControlCommand::ListHosts,
         Commands::GetHost { id } => ControlCommand::GetHost { id },
         Commands::Reload => ControlCommand::Reload,
+        _ => unreachable!()
     };
     let mut stream = UnixStream::connect(socket_path)?;
     let command_json = serde_json::to_string(&control_command)?;
