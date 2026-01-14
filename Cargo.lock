@@ -5800,6 +5800,7 @@ dependencies = [
  "async-trait",
  "dotenvy",
  "instant-acme",
+ "lazy_static",
  "radiance-types",
  "rcgen",
  "reqwest",
@@ -5812,6 +5813,15 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "x509-parser 0.18.0",
+ "zenith-types",
+]
+
+[[package]]
+name = "zenith-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

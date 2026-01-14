@@ -5,6 +5,8 @@ mod cloudflare;
 mod config;
 mod dns_provider;
 pub mod control_socket;
+pub mod environment;
+pub mod store;
 
 use anyhow::{Result, anyhow};
 use certificate_manager::CertificateManager;
@@ -44,7 +46,7 @@ async fn main() -> Result<()> {
     let certificates = config
         .certificates
         .iter()
-        .map(|c| {
+        .map(|(id, c)| {
             let dns_provider = dns_providers
                 .get(&c.dns_provider)
                 .cloned();
@@ -54,7 +56,7 @@ async fn main() -> Result<()> {
                     c.name
                 ));
             }
-            CertificateManager::new(c.clone(), dns_provider)
+            CertificateManager::new(id.clone(), c.clone(), dns_provider, config.store_location.clone())
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -66,11 +68,11 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             let mut failures = 0;
             loop {
-                let Ok(paths) = certificate.get_or_create_paths().await else {
-                    error!("Certificate '{}': Failed to get or create paths", certificate.name());
+                let Ok(store) = certificate.initialize().await else {
+                    error!("Certificate '{}': Failed to initialize store", certificate.name());
                     break;
                 };
-                match certificate.check_and_renew(&paths).await {
+                match certificate.check_and_renew(store).await {
                     Ok(renewed) => {
                         if renewed {
                             info!("Certificate '{}': Successfully renewed", certificate.name());

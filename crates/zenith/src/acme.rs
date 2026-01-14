@@ -1,12 +1,11 @@
+use crate::store::Store;
 use crate::{acme_provider::AcmeProviderType, control_socket::ControlSocket};
 use crate::dns_provider::DnsProvider;
 use anyhow::{Result, anyhow};
-use instant_acme::{Account, AccountCredentials, ChallengeType, Identifier, NewOrder, OrderStatus};
+use instant_acme::{Account, ChallengeType, Identifier, NewOrder, OrderStatus};
 use rcgen::{CertificateParams, KeyPair};
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::fs;
 use tracing::{debug, info};
 use x509_parser::pem::parse_x509_pem;
 
@@ -40,17 +39,14 @@ impl AcmeService {
 
     async fn get_or_create_account(
         &self,
-        key_path: &Path,
-    ) -> Result<(Account, AccountCredentials)> {
-        if key_path.exists() {
-            info!("Loading existing account credentials from {:?}", key_path);
-            let credentials_pem = fs::read_to_string(key_path).await?;
-            let credentials: AccountCredentials = serde_json::from_str(&credentials_pem)?;
-            let account = Account::from_credentials(credentials).await?;
-            let credentials_pem = fs::read_to_string(key_path).await?;
-            let credentials: AccountCredentials = serde_json::from_str(&credentials_pem)?;
+        store: Arc<dyn Store>,
+    ) -> Result<Account> {
+        let credentials = store.get_account_key().await?;
+        if let Some(credentials) = credentials {
+            info!("Loading existing account credentials from store");
+            let account = Account::from_credentials(serde_json::from_str(&credentials.clone())?).await?;
 
-            Ok((account, credentials))
+            Ok(account)
         } else {
             info!(
                 "Creating new ACME account with {}",
@@ -68,23 +64,22 @@ impl AcmeService {
             .await?;
 
             let credentials_json = serde_json::to_string_pretty(&credentials)?;
-            fs::write(key_path, credentials_json).await?;
+            store.store_account_key(&credentials_json).await?;
             info!(
                 "ACME account created and saved for {}",
                 self.acme_provider.name()
             );
-            Ok((account, credentials))
+            Ok(account)
         }
     }
 
     pub async fn request_certificate(
         &self,
         domains: Vec<String>,
-        account_key_path: &Path,
-        cert_key_path: &Path,
+        store: Arc<dyn Store>,
     ) -> Result<CertificateResult> {
         info!("Requesting certificate for domains: {:?}", domains);
-        let (account, _credentials) = self.get_or_create_account(account_key_path).await?;
+        let account = self.get_or_create_account(store.clone()).await?;
         let identifiers: Vec<Identifier> = domains
             .iter()
             .map(|d| Identifier::Dns(d.to_string()))
@@ -238,12 +233,11 @@ impl AcmeService {
         }
 
         info!("Generating certificate private key");
-        let cert_key_pair = if cert_key_path.exists() {
-            let pem = fs::read_to_string(cert_key_path).await?;
-            KeyPair::from_pem(&pem)?
+        let cert_key_pair = store.get_cert_key().await?;
+        let cert_key_pair = if let Some(pem) = cert_key_pair {
+            KeyPair::from_pem(&String::from_utf8(pem)?)?
         } else {
             let key_pair = KeyPair::generate()?;
-            fs::write(cert_key_path, key_pair.serialize_pem()).await?;
             key_pair
         };
         let mut params = CertificateParams::new(domains.clone())?;
@@ -310,12 +304,11 @@ impl AcmeService {
         }
     }
 
-    pub async fn needs_renewal(&self, cert_path: &Path) -> Result<bool> {
-        if !cert_path.exists() {
+    pub async fn needs_renewal(&self, store: Arc<dyn Store>) -> Result<bool> {
+        let cert_pem = store.get_cert_key().await?;
+        let Some(cert_pem) = cert_pem else {
             return Ok(true);
-        }
-
-        let cert_pem = fs::read(cert_path).await?;
+        };
         let pem = parse_x509_pem(&cert_pem).map_err(|e| anyhow!("Failed to parse PEM: {}", e))?;
         let cert = pem
             .1
