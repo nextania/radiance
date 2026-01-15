@@ -311,7 +311,7 @@ impl AcmeService {
     }
 
     pub async fn needs_renewal(&self, store: Arc<dyn Store>) -> Result<RenewalStatus> {
-        let cert_pem = store.get_cert_key().await?;
+        let cert_pem = store.get_cert().await?;
         let Some(cert_pem) = cert_pem else {
             return Ok(RenewalStatus {
                 needs_renewal: true,
