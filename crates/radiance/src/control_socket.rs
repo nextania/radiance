@@ -1,5 +1,6 @@
 use partially::Partial;
 use radiance_types::{ControlCommand, ControlError, ControlResponse, Empty};
+use serde_json::json;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Arc;
@@ -332,11 +333,29 @@ async fn list_certificates(config: SharedConfig) -> ControlResponse {
     ControlResponse::Success { data: certs_json }
 }
 
+fn get_expiration(cert: &[u8]) -> Option<i64> {
+    let (_, parsed) = x509_parser::parse_x509_certificate(cert).ok()?;
+    let timestamp = parsed.validity().not_after.timestamp();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    let remaining = (timestamp - now) / 86400;
+    Some(remaining)
+}
+
 async fn get_certificate(config: SharedConfig, id: String) -> ControlResponse {
     let cfg = config.read().await;
     match cfg.certificates.get(&id) {
         Some(cert) => {
-            let cert_json = serde_json::to_value(&cert.config).unwrap_or(serde_json::Value::Null);
+            let exp = match cert.cert {
+                TlsCertConfigState::Loaded(ref c) => c.cert.get(0).map(|cert_der| get_expiration(&cert_der)),
+                _ => None,
+            }.flatten();
+            let cert_json = json!({
+                "config": &cert.config,
+                "days_remaining": exp,
+            });
             ControlResponse::Success { data: cert_json }
         }
         None => ControlResponse::Error {

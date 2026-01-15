@@ -34,3 +34,4 @@ radiance-types = { path = "../radiance-types" }
 radiance-control = { path = "../radiance-control" }
 sha2 = "0.10.9"
 zenith-types = { path = "../zenith-types" }
+x509-parser = "0.18"
