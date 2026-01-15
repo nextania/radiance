@@ -326,10 +326,25 @@ async fn remove_certificate(config: SharedConfig, id: String) -> ControlResponse
     ControlResponse::Success { data: empty() }
 }
 
+#[derive(serde::Serialize)]
+pub struct TlsCertificateInfo {
+    pub config: radiance_types::config::TlsCertConfig,
+    pub days_remaining: Option<i64>,
+}
+
 async fn list_certificates(config: SharedConfig) -> ControlResponse {
     let cfg = config.read().await;
-    let cfg: Config = (&*cfg).into();
-    let certs_json = serde_json::to_value(&cfg.certificates).unwrap_or(serde_json::Value::Null);
+    let certificates = cfg.certificates.iter().map(|(id, cert)| {
+        let days_remaining = match cert.cert {
+            TlsCertConfigState::Loaded(ref c) => c.cert.get(0).map(|cert_der| get_expiration(&cert_der)),
+            _ => None,
+        }.flatten();
+        (id.clone(), TlsCertificateInfo {
+            config: cert.config.clone(),
+            days_remaining,
+        })
+    }).collect::<std::collections::HashMap<_, _>>();
+    let certs_json = serde_json::to_value(&certificates).unwrap_or(serde_json::Value::Null);
     ControlResponse::Success { data: certs_json }
 }
 
