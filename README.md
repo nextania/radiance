@@ -34,5 +34,6 @@ TODO
 TODO
 
 ## License
-Radiance is licensed under the GNU Affero General Public License v3.0. See the [LICENSE](LICENSE) file for details.
+<img align="right" height="100" alt="GNU AGPLv3" src="https://github.com/user-attachments/assets/4df7df05-0123-45d9-b7a9-cceb64e514d9" /> Radiance is licensed under the GNU Affero General Public License v3.0. See the [LICENSE](LICENSE) file for details.
 Contributions are welcome! 
+
