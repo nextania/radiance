@@ -30,6 +30,7 @@ pub enum ControlError {
     CertificateAlreadyExists,
     NoDnsProviderConfigured,
     CertificateAdditionFailed,
+    CertificateReadError,
     RenewalAlreadyInProgress,
     FailedToSave,
     MalformedCommand,

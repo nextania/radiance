@@ -304,10 +304,13 @@ impl AcmeService {
         }
     }
 
-    pub async fn needs_renewal(&self, store: Arc<dyn Store>) -> Result<bool> {
+    pub async fn needs_renewal(&self, store: Arc<dyn Store>) -> Result<RenewalStatus> {
         let cert_pem = store.get_cert_key().await?;
         let Some(cert_pem) = cert_pem else {
-            return Ok(true);
+            return Ok(RenewalStatus {
+                needs_renewal: true,
+                days_remaining: None,
+            });
         };
         let pem = parse_x509_pem(&cert_pem).map_err(|e| anyhow!("Failed to parse PEM: {}", e))?;
         let cert = pem
@@ -324,12 +327,21 @@ impl AcmeService {
 
         info!("Certificate expires in {} days", days_remaining);
 
-        if days_remaining < 30 {
+        let needs_renewal = if days_remaining < 30 {
             info!("Certificate needs renewal (less than 30 days remaining)");
-            Ok(true)
+            true
         } else {
             info!("Certificate is still valid");
-            Ok(false)
-        }
+            false
+        };
+        Ok(RenewalStatus {
+            needs_renewal,
+            days_remaining: Some(days_remaining),
+        })
     }
+}
+
+pub struct RenewalStatus {
+    pub needs_renewal: bool,
+    pub days_remaining: Option<i64>,
 }

@@ -1,4 +1,4 @@
-use crate::acme::AcmeService;
+use crate::acme::{AcmeService, RenewalStatus};
 use crate::acme_provider::AcmeProviderType;
 use crate::config::StoreLocation;
 use radiance_control::{RadianceControlClient};
@@ -50,7 +50,7 @@ impl CertificateManager {
         })
     }
     pub async fn check_and_renew(&self) -> Result<bool> {
-        if self.acme_service.needs_renewal(self.store.clone()).await? {
+        if self.acme_service.needs_renewal(self.store.clone()).await?.needs_renewal {
             info!("Certificate '{}': Renewal needed", self.config.name);
             self.renewal_in_progress.store(true, std::sync::atomic::Ordering::SeqCst);
             let result = self
@@ -83,7 +83,7 @@ impl CertificateManager {
         &self.config
     }
 
-    pub async fn check_renewal_status(&self) -> Result<bool> {
+    pub async fn check_renewal_status(&self) -> Result<RenewalStatus> {
         self.acme_service.needs_renewal(self.store.clone()).await
     }
 

@@ -121,11 +121,24 @@ impl ControlSocketServer {
         match certificates.get(&id) {
             Some(cert_manager) => {
                 let config = cert_manager.config();
-                ControlResponse::Success {
-                    data: json!({
-                        "id": id,
-                        "certificate": config,
-                    }),
+                let cert = cert_manager.read_current().await;
+                if let Ok(cert) = cert {
+                    let expiry = if cert.is_some() {
+                        Some(cert_manager.check_renewal_status().await.expect("should exist")
+                        .days_remaining.expect("days_remaining should be present"))
+                    } else {
+                        None
+                    };
+                    return ControlResponse::Success {
+                        data: json!({
+                            "config": config,
+                            "cert": cert,
+                            "days_remaining": expiry,
+                        }),
+                    };
+                }
+                ControlResponse::Error {
+                    error: ControlError::CertificateReadError,
                 }
             }
             None => ControlResponse::Error {
@@ -253,13 +266,20 @@ impl ControlSocketServer {
         
         let cert_list: Vec<_> = certificates
             .iter()
-            .map(|(id, manager)| {
+            .map(|(id, manager)| async {
+                let expiry = if let Ok(status) = manager.check_renewal_status().await {
+                    status.days_remaining
+                } else {
+                    None
+                };
                 json!({
-                    "id": id,
+                    "id": id.clone(),
                     "config": manager.config(),
+                    "days_remaining": expiry,
                 })
             })
             .collect();
+        let cert_list = futures::future::join_all(cert_list).await;
 
         ControlResponse::Success {
             data: json!({
