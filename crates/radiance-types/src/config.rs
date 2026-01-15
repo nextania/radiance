@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum TlsCertConfig {
     Local { cert_file: String, key_file: String },
     Vault { vault_path: String },
-    Managed { control_socket: String },
+    Managed { control_socket: String, remote_id: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Partial)]

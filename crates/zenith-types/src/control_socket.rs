@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::CertificateConfig;
+use crate::{Certificate, CertificateConfig};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ControlCommand {
@@ -43,4 +43,11 @@ pub enum ControlError {
     RenewalAlreadyInProgress,
     FailedToSave,
     MalformedCommand,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DetailedCertificate {
+    pub config: CertificateConfig,
+    pub cert: Option<Certificate>,
+    pub days_remaining: Option<i64>,
 }

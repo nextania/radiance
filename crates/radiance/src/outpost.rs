@@ -24,6 +24,9 @@ lazy_static! {
     pub static ref ACTIVE_OUTPOSTS: DashMap<String, (UnboundedSender<ProtocolS2C>, UnboundedSender<DatagramMessage>)> = DashMap::new();
     pub static ref ACTIVE_REQUESTS: DashMap<u64, oneshot::Sender<OutpostResponse>> = DashMap::new();
     pub static ref ACTIVE_TCP_STREAMS: DashMap<u64, UnboundedSender<Vec<u8>>> = DashMap::new();
+    // i realized midway through that this requires 
+    // session management on the outpost's end too, 
+    // but leaving this here for future use
     pub static ref ACTIVE_UDP_STREAMS: DashMap<u64, UnboundedSender<Vec<u8>>> = DashMap::new();
 }
 #[derive(Debug)]

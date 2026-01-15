@@ -8,7 +8,7 @@ use tokio::{
     sync::broadcast,
 };
 use tracing::{error, info, warn};
-use zenith_types::{CertificateConfig, ControlCommand, ControlError, ControlResponse};
+use zenith_types::{CertificateConfig, ControlCommand, ControlError, ControlResponse, DetailedCertificate};
 
 use crate::{
     certificate_manager::CertificateManager, config::StoreLocation, dns_provider::DnsProvider,
@@ -138,11 +138,11 @@ impl ControlSocketServer {
                         None
                     };
                     return ControlResponse::Success {
-                        data: json!({
-                            "config": config,
-                            "cert": cert,
-                            "days_remaining": expiry,
-                        }),
+                        data: serde_json::to_value(DetailedCertificate {
+                            config: config.clone(),
+                            cert,
+                            days_remaining: expiry,
+                        }).expect("serialization should work"),
                     };
                 }
                 ControlResponse::Error {

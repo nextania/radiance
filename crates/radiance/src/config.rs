@@ -43,9 +43,8 @@ impl TlsCertConfigExt for TlsCertConfig {
             TlsCertConfig::Vault { .. } => {
                 Err(anyhow::anyhow!("Vault certificate loading not implemented"))
             }
-            TlsCertConfig::Managed { .. } => Err(anyhow::anyhow!(
-                "Managed certificate loading not implemented"
-            )),
+            TlsCertConfig::Managed { control_socket, remote_id } => 
+            read_managed_cert(control_socket, remote_id).await,
         }
     }
 }
@@ -61,6 +60,28 @@ async fn read_local_cert(
     let mut key = Vec::new();
     key_file.read_to_end(&mut key).await?;
     process_cert(&cert, &key).await
+}
+
+async fn read_managed_cert(
+    control_socket: &str,
+    remote_id: &str,
+) -> anyhow::Result<CertifiedKey> {
+    let certificate =
+        radiance_control::ZenithControlClient::new(control_socket.to_owned())
+            .get_certificate(remote_id.to_string())
+            .await?;
+    let cert_data = match certificate {
+        zenith_types::ControlResponse::Success { data } => {
+            serde_json::from_value::<zenith_types::DetailedCertificate>(data)?
+        }
+        zenith_types::ControlResponse::Error { error } => {
+            return Err(anyhow::anyhow!("Failed to get managed certificate: {:?}", error));
+        }
+    };
+    if let Some(cert) = &cert_data.cert {
+        return process_cert(&cert.cert, &cert.key).await;
+    }
+    Err(anyhow::anyhow!("Managed certificate has no cert/key data"))
 }
 
 async fn process_cert(mut cert: &[u8], mut key: &[u8]) -> anyhow::Result<CertifiedKey> {
@@ -249,7 +270,7 @@ impl FullConfig {
                         }
                         drop(cfg);
                         tracing::info!("Successfully loaded certificate: {}", cert_id);
-                        if let TlsCertConfig::Managed { control_socket } = cert_config {
+                        if let TlsCertConfig::Managed { control_socket, remote_id } = cert_config {
                             tokio::spawn(async move {
                                 // listen renewals here
                                 let mut cert = Arc::clone(&arc);
@@ -258,7 +279,7 @@ impl FullConfig {
                                     let mut certificate =
                                         radiance_control::ZenithCertificateClient::new(
                                             &control_socket,
-                                            &cert_id,
+                                            &remote_id,
                                         )
                                         .await?;
                                     let mut interval = time::interval(Duration::from_secs(60));
