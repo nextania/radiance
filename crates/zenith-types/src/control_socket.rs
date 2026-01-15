@@ -28,6 +28,8 @@ pub enum ControlResponse {
 pub enum ControlError {
     CertificateNotFound,
     CertificateAlreadyExists,
+    NoDnsProviderConfigured,
+    CertificateAdditionFailed,
     RenewalAlreadyInProgress,
     FailedToSave,
     MalformedCommand,

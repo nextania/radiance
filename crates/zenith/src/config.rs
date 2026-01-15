@@ -11,6 +11,7 @@ pub struct Config {
     pub certificates: HashMap<String, CertificateConfig>,
     pub dns_providers: DnsProviders,
     pub store_location: StoreLocation,
+    pub control_socket_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

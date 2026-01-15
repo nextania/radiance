@@ -5799,6 +5799,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "dotenvy",
+ "futures",
  "instant-acme",
  "lazy_static",
  "radiance-types",

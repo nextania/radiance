@@ -12,8 +12,11 @@ use anyhow::{Result, anyhow};
 use certificate_manager::CertificateManager;
 use cloudflare::CloudflareClient;
 use config::Config;
+use control_socket::{ControlSocketServer};
 use dns_provider::DnsProvider;
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::{RwLock};
 use tracing::{error, info};
 use tracing_subscriber;
 
@@ -34,8 +37,7 @@ async fn main() -> Result<()> {
         config.certificates.len()
     );
 
-    let mut dns_providers: std::collections::HashMap<String, Arc<dyn DnsProvider>> =
-        std::collections::HashMap::new();
+    let mut dns_providers: HashMap<String, Arc<dyn DnsProvider>> = HashMap::new();
 
     if let Some(cloudflare_config) = &config.dns_providers.cloudflare {
         let cloudflare = CloudflareClient::new(cloudflare_config.api_key.clone());
@@ -46,7 +48,7 @@ async fn main() -> Result<()> {
     let certificates = config
         .certificates
         .iter()
-        .map(|(id, c)| {
+        .map(|(id, c)| async {
             let dns_provider = dns_providers
                 .get(&c.dns_provider)
                 .cloned();
@@ -57,25 +59,62 @@ async fn main() -> Result<()> {
                 ));
             }
             CertificateManager::new(id.clone(), c.clone(), dns_provider, config.store_location.clone())
+                .await
+                .map(|manager| (id.clone(), Arc::new(manager)))
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Vec<_>>();
+    let certificates = futures::future::join_all(certificates).await.into_iter().collect::<Result<HashMap<_, _>>>()?;
 
     if certificates.is_empty() {
         return Err(anyhow!("No certificate managers were successfully created"));
     }
 
-    for certificate in certificates {
+    let certificates = Arc::new(RwLock::new(certificates));
+    let dns_providers = Arc::new(dns_providers);
+
+    let control_server = if let Some(socket_path) = config.control_socket_path.clone() {
+        let server = Arc::new(ControlSocketServer::new(
+            socket_path.clone(),
+            Arc::clone(&certificates),
+            dns_providers,
+            config.store_location.clone(),
+        ));
+        
+        let server_clone = Arc::clone(&server);
+        tokio::spawn(async move {
+            if let Err(e) = server_clone.start().await {
+                error!("Control socket server error: {}", e);
+            }
+        });
+        
+        info!("Control socket server started on: {}", socket_path);
+        Some(server)
+    } else {
+        None
+    };
+
+    let certs_read = certificates.read().await;
+    for (id, certificate) in certs_read.iter() {
+        let certificate = Arc::clone(certificate);
+        let cert_id = id.clone();
+        let server = control_server.clone();
+        
         tokio::spawn(async move {
             let mut failures = 0;
             loop {
-                let Ok(store) = certificate.initialize().await else {
-                    error!("Certificate '{}': Failed to initialize store", certificate.name());
+                if certificate.is_discarded() {
+                    info!("Certificate '{}': Discarded, stopping renewal checks", certificate.name());
                     break;
-                };
-                match certificate.check_and_renew(store).await {
+                }
+                match certificate.check_and_renew().await {
                     Ok(renewed) => {
                         if renewed {
                             info!("Certificate '{}': Successfully renewed", certificate.name());
+                            
+                            if let Some(ref server) = server {
+                                let cert_data = serde_json::to_string(&certificate.read_current().await?.expect("No certificate data"))?;
+                                server.notify_certificate_update(&cert_id, cert_data).await;
+                            }
                         } else {
                             info!("Certificate '{}': No renewal needed", certificate.name());
                         }
@@ -107,8 +146,10 @@ async fn main() -> Result<()> {
                 info!("Certificate '{}': Sleeping for 24 hours before next check", certificate.name());
                 tokio::time::sleep(std::time::Duration::from_hours(24)).await;
             }
+            Ok::<(), anyhow::Error>(())
         });
     }
+    drop(certs_read);
 
     tokio::signal::ctrl_c().await?;
     info!("Shutting down Zenith ACME certificate service");

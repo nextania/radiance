@@ -24,3 +24,4 @@ radiance-types = { path = "../radiance-types" }
 rustls = { version = "0.23.36", features = ["ring"] }
 zenith-types = { path = "../zenith-types" }
 lazy_static = "1.5.0"
+futures = "0.3.31"

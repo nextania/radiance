@@ -16,6 +16,8 @@ pub struct LocalStore {
 pub trait Store: Send + Sync {
     async fn get_account_key(&self) -> Result<Option<String>>;
     async fn get_cert_key(&self) -> Result<Option<Vec<u8>>>;
+    async fn get_cert(&self) -> Result<Option<Vec<u8>>>;
+    async fn get_chain(&self) -> Result<Option<Vec<u8>>>;
     async fn store_certificate(&self, key: &str, cert: &str, chain: &str) -> Result<()>;
     async fn store_account_key(&self, account_key: &str) -> Result<()>;
 }
@@ -55,6 +57,24 @@ impl Store for LocalStore {
         Ok(Some(key))
     }
 
+    async fn get_cert(&self) -> Result<Option<Vec<u8>>> {
+        let path = self.path.join("cert.pem");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let cert = fs::read(path).await?;
+        Ok(Some(cert))
+    }
+
+    async fn get_chain(&self) -> Result<Option<Vec<u8>>> {
+        let path = self.path.join("chain.pem");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let chain = fs::read(path).await?;
+        Ok(Some(chain))
+    }
+
     async fn store_certificate(&self, key: &str, cert: &str, chain: &str) -> Result<()> {
         let key_path = self.path.join("cert.key");
         let cert_path = self.path.join("cert.pem");
@@ -83,6 +103,14 @@ impl Store for VaultStore {
     }
 
     async fn get_cert_key(&self) -> Result<Option<Vec<u8>>> {
+        todo!()
+    }
+
+    async fn get_cert(&self) -> Result<Option<Vec<u8>>> {
+        todo!()
+    }
+
+    async fn get_chain(&self) -> Result<Option<Vec<u8>>> {
         todo!()
     }
 
