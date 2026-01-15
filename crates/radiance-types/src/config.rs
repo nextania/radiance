@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use partially::{Partial};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TlsCertConfig {
     Local {
@@ -15,6 +15,10 @@ pub enum TlsCertConfig {
         id: String,
         vault_path: String,
     },
+    Managed {
+        id: String,
+        control_socket: String,
+    },
 }
 
 impl TlsCertConfig {
@@ -22,6 +26,7 @@ impl TlsCertConfig {
         match self {
             TlsCertConfig::Local { id, .. } => id,
             TlsCertConfig::Vault { id, .. } => id,
+            TlsCertConfig::Managed { id, .. } => id,
         }
     }
 }

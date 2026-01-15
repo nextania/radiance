@@ -55,7 +55,13 @@ async fn get_cert_for_sni(sni: &str, config: Arc<RwLock<FullConfig>>) -> Option<
         .map(|s| config.certificates.iter().find(|c| c.config.id() == s))
         .flatten();
     match id {
-        Some(cert_cfg) => Some(cert_cfg.cert.clone()),
+        Some(cert_cfg) => match cert_cfg.cert {
+            crate::config::TlsCertConfigState::Loaded(ref cert) => Some(cert.clone()),
+            _ => {
+                error!("Certificate for SNI '{}' is not loaded", sni);
+                None
+            }
+        },
         None => None,
     }
 }
@@ -76,7 +82,7 @@ async fn main() {
     if !std::path::Path::new(&*CONFIG_FILE).exists() {
         panic!("Configuration file not found at path: {}", &*CONFIG_FILE);
     }
-    let config = FullConfig::load_from_file(&CONFIG_FILE)
+    let (raw, config) = FullConfig::load_from_file(&CONFIG_FILE)
         .await
         .expect("Failed to load configuration");
     info!("Configuration loaded");
@@ -85,6 +91,7 @@ async fn main() {
     let listen_address_tls = config.listen_address_tls();
     let outpost_address = config.outpost_listen_address();
     let shared_config = Arc::new(RwLock::new(config));
+    FullConfig::spawn_certificate_loading(raw, shared_config.clone());
 
     let control_socket_path =
         std::env::var("CONTROL_SOCKET_PATH").unwrap_or_else(|_| "/tmp/radiance.sock".to_string());

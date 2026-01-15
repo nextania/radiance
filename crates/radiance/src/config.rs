@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use async_trait::async_trait;
 use futures_util::FutureExt;
 use http::Extensions;
 use pingora::{
@@ -20,12 +21,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::virtual_connector::VirtualConnector;
 
+#[async_trait]
 pub trait TlsCertConfigExt {
-    fn read_cert(&self) -> anyhow::Result<rustls::sign::CertifiedKey>;
+    async fn read_cert(&self) -> anyhow::Result<rustls::sign::CertifiedKey>;
 }
 
+#[async_trait]
 impl TlsCertConfigExt for TlsCertConfig {
-    fn read_cert(&self) -> anyhow::Result<rustls::sign::CertifiedKey> {
+    async fn read_cert(&self) -> anyhow::Result<rustls::sign::CertifiedKey> {
         match self {
             TlsCertConfig::Local {
                 cert_file,
@@ -34,6 +37,9 @@ impl TlsCertConfigExt for TlsCertConfig {
             } => read_local_cert(cert_file, key_file),
             TlsCertConfig::Vault { .. } => {
                 Err(anyhow::anyhow!("Vault certificate loading not implemented"))
+            }
+            TlsCertConfig::Managed { .. } => {
+                Err(anyhow::anyhow!("Managed certificate loading not implemented"))
             }
         }
     }
@@ -60,7 +66,13 @@ fn read_local_cert(
 
 pub struct TlsCertConfigWithKey {
     pub config: TlsCertConfig,
-    pub cert: CertifiedKey,
+    pub cert: TlsCertConfigState,
+}
+
+pub enum TlsCertConfigState {
+    Loading,
+    Loaded(CertifiedKey),
+    Failed,
 }
 
 
@@ -169,10 +181,9 @@ impl From<Config> for FullConfig {
                 .certificates
                 .iter()
                 .map(|c| {
-                    let cert = c.read_cert().expect("Failed to read TLS certificate");
                     Arc::new(TlsCertConfigWithKey {
                         config: c.clone(),
-                        cert,
+                        cert: TlsCertConfigState::Loading,
                     })
                 })
                 .collect(),
@@ -207,11 +218,45 @@ impl From<&FullConfig> for Config {
 }
 
 impl FullConfig {
-    pub async fn load_from_file(path: &str) -> anyhow::Result<Self> {
+    pub async fn load_from_file(path: &str) -> anyhow::Result<(Config, Self)> {
         let contents = tokio::fs::read_to_string(path).await?;
-        let full_config: FullConfig = toml::from_str::<Config>(&contents)?.into();
+        let config: Config = toml::from_str(&contents)?;
+        let full_config: FullConfig = config.clone().into();
 
-        Ok(full_config)
+        Ok((config, full_config))
+    }
+
+    pub fn spawn_certificate_loading(
+        config_to_load: Config,
+        config_ref: Arc<tokio::sync::RwLock<Self>>,
+    ) {
+        for cert_config in config_to_load.certificates {
+            let config_clone = config_ref.clone();
+            let cert_id = cert_config.id().to_string();
+            
+            tokio::spawn(async move {
+                tracing::info!("Loading certificate: {}", cert_id);
+                match cert_config.read_cert().await {
+                    Ok(cert) => {
+                        let mut cfg = config_clone.write().await;
+                        if let Some(cert_with_key) = cfg
+                            .certificates
+                            .iter_mut()
+                            .find(|c| c.config.id() == cert_id && matches!(c.cert, TlsCertConfigState::Loading))
+                        {
+                            *cert_with_key = Arc::new(TlsCertConfigWithKey {
+                                config: cert_with_key.config.clone(),
+                                cert: TlsCertConfigState::Loaded(cert),
+                            });
+                            tracing::info!("Successfully loaded certificate: {}", cert_id);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to load certificate {}: {}", cert_id, e);
+                    }
+                }
+            });
+        }
     }
 
     pub async fn save_to_file(&self, path: &str) -> anyhow::Result<()> {

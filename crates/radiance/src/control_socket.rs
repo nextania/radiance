@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 use tracing::{error, info};
 
 use radiance_types::{HostConfig, PartialHostConfig};
-use crate::config::{Config, FullConfig, TlsCertConfigExt};
+use crate::config::{Config, FullConfig, TlsCertConfigExt, TlsCertConfigState};
 use crate::environment::CONFIG_FILE;
 
 pub type SharedConfig = Arc<RwLock<FullConfig>>;
@@ -237,9 +237,12 @@ async fn get_host(config: SharedConfig, id: String) -> ControlResponse {
 
 async fn reload_config(config: SharedConfig) -> ControlResponse {
     match crate::config::FullConfig::load_from_file(&CONFIG_FILE).await {
-        Ok(new_config) => {
+        Ok((raw, new_config)) => {
             let mut cfg = config.write().await;
             *cfg = new_config;
+            // TODO: (broken) handle reloading of certificates properly
+            // we can't just replace the whole config as some certs may be in use
+            // so we should update only when they are done loading (with)
             info!("Configuration reloaded from file");
             ControlResponse::Success {
                 data: empty(),
@@ -258,7 +261,7 @@ async fn add_certificate(config: SharedConfig, certificate: radiance_types::conf
             error: ControlError::CertificateAlreadyExists,
         };
     }
-    let cert_key = match certificate.read_cert() {
+    let cert_key = match certificate.read_cert().await {
         Ok(cert) => cert,
         Err(_) => return ControlResponse::Error {
             error: ControlError::InvalidCertificate,
@@ -266,7 +269,7 @@ async fn add_certificate(config: SharedConfig, certificate: radiance_types::conf
     };
     cfg.certificates.push(Arc::new(crate::config::TlsCertConfigWithKey {
         config: certificate.clone(),
-        cert: cert_key,
+        cert: TlsCertConfigState::Loaded(cert_key),
     }));
     if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
         return ControlResponse::Error {
