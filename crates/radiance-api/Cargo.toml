@@ -16,6 +16,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
 actix-web = "4.12.1"
 radiance-types = { path = "../radiance-types" }
+radiance-control = { path = "../radiance-control" }
 argon2 = "0.5.3"
 openidconnect = "4.0.1"
 toml = "0.9.11"

@@ -1,7 +1,6 @@
 pub mod auth;
 pub mod config;
 pub mod handlers;
-pub mod socket_client;
 pub mod sessions;
 pub mod environment;
 pub mod errors;
@@ -19,7 +18,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::auth::AuthMiddleware;
 use crate::config::ApiConfig;
-use crate::socket_client::ControlSocketClient;
+use radiance_control::RadianceControlClient;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -99,7 +98,7 @@ async fn main() -> Result<()> {
     sessions::connect().await;
     info!("Connected to MongoDB");
 
-    let socket_client = Arc::new(ControlSocketClient::new(&config.socket_path));
+    let socket_client = Arc::new(RadianceControlClient::new(&config.socket_path));
     let oidc_clients = 
         Arc::new(auth::resolve_oidc_clients(&config).await?);
 

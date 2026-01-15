@@ -18,8 +18,7 @@ use pingora_load_balancing::{
 use radiance_types::{HostConfig, ServerConfig, TlsCertConfig};
 use rustls::{crypto::ring::sign::any_supported_type, pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject}, sign::CertifiedKey};
 use serde::{Deserialize, Serialize};
-use tokio::{fs::File, io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader}, net::{UnixStream, unix::OwnedReadHalf}, time};
-use zenith_types::{Certificate, ControlCommand, ControlResponse};
+use tokio::{fs::File, io::AsyncReadExt, time};
 
 use crate::virtual_connector::VirtualConnector;
 
@@ -74,7 +73,6 @@ pub struct TlsCertConfigWithKey {
 }
 
 pub enum TlsCertConfigState {
-    Loading,
     Loaded(CertifiedKey),
     Failed,
 }
@@ -170,36 +168,6 @@ impl From<HostConfig> for HostConfigWithBalancer {
     }
 }
 
-pub struct CertificateClient {
-    pub buf_reader: BufReader<OwnedReadHalf>,
-}
-impl CertificateClient {
-    pub async fn new(path: &str, id: &str) -> anyhow::Result<Self> {        
-        let stream = UnixStream::connect(path).await?;
-        let (reader, mut writer) = stream.into_split();
-        let command = ControlCommand::SubscribeCertificate {
-            id: id.to_string(),
-        };
-        let command_json = serde_json::to_string(&command)?;
-        writer.write_all(command_json.as_bytes()).await?;
-        writer.write_all(b"\n").await?;
-        writer.flush().await?;
-        let buf_reader = BufReader::new(reader);
-        Ok(Self { buf_reader })
-    }
-
-    pub async fn read(&mut self) -> anyhow::Result<Certificate> {
-        let mut response_line = String::new();
-        self.buf_reader.read_line(&mut response_line).await?;
-        let response: ControlResponse = serde_json::from_str(&response_line)?;
-        let ControlResponse::Success { data } = &response else {
-            return Err(anyhow::anyhow!("Failed to get certificate: {:?}", response));
-        };
-        let certificate: Certificate = serde_json::from_value(data.clone())?;
-        Ok(certificate)
-    }
-}
-
 impl From<Config> for FullConfig {
     fn from(cfg: Config) -> Self {
         FullConfig {
@@ -284,7 +252,7 @@ impl FullConfig {
                                 let mut cert = Arc::clone(&arc);
                                 loop {
                                     // await on unix socket
-                                    let mut certificate = CertificateClient::new(&control_socket, &cert_id).await?;
+                                    let mut certificate = radiance_control::ZenithCertificateClient::new(&control_socket, &cert_id).await?;
                                     let mut interval = time::interval(Duration::from_secs(60));
                                     tokio::select! { 
                                         new_cert = certificate.read() => {

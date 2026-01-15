@@ -3,7 +3,8 @@ use radiance_types::{ControlResponse, config::{HostConfig, PartialHostConfig, Tl
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::{errors::ApiError, socket_client::ControlSocketClient};
+use crate::errors::ApiError;
+use radiance_control::RadianceControlClient;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddHostRequest {
@@ -30,7 +31,7 @@ pub struct ClearHttpChallengeRequest {
 }
 
 pub async fn add_host(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
     request: web::Json<AddHostRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
@@ -45,7 +46,7 @@ pub async fn add_host(
 }
 
 pub async fn update_host(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
     id: web::Path<String>,
     request: web::Json<UpdateHostRequest>,
 ) -> Result<HttpResponse, ApiError> {
@@ -61,7 +62,7 @@ pub async fn update_host(
 }
 
 pub async fn remove_host(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
     id: web::Path<String>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
@@ -76,7 +77,7 @@ pub async fn remove_host(
 }
 
 pub async fn get_host(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
     id: web::Path<String>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
@@ -91,7 +92,7 @@ pub async fn get_host(
 }
 
 pub async fn list_hosts(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
         .list_hosts()
@@ -105,7 +106,7 @@ pub async fn list_hosts(
 }
 
 pub async fn reload(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
         .reload()
@@ -119,7 +120,7 @@ pub async fn reload(
 }
 
 pub async fn set_http_challenge(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
     request: web::Json<SetHttpChallengeRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
@@ -138,7 +139,7 @@ pub async fn set_http_challenge(
 }
 
 pub async fn clear_http_challenge(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
     request: web::Json<ClearHttpChallengeRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
@@ -159,7 +160,7 @@ pub struct AddCertificateRequest {
 }
 
 pub async fn add_certificate(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
     certificate: web::Json<AddCertificateRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
@@ -174,7 +175,7 @@ pub async fn add_certificate(
 }
 
 pub async fn remove_certificate(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
     id: web::Path<String>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
@@ -189,7 +190,7 @@ pub async fn remove_certificate(
 }
 
 pub async fn list_certificates(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
         .list_certificates()
@@ -203,7 +204,7 @@ pub async fn list_certificates(
 }
 
 pub async fn get_certificate(
-    client: web::Data<Arc<ControlSocketClient>>,
+    client: web::Data<Arc<RadianceControlClient>>,
     id: web::Path<String>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client

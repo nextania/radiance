@@ -2,13 +2,14 @@ use anyhow::Result;
 use radiance_types::control_socket::{ControlCommand, ControlResponse};
 use std::path::Path;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
+use tokio::net::{UnixStream, unix::OwnedReadHalf};
 
-pub struct ControlSocketClient {
+#[derive(Clone, Debug)]
+pub struct RadianceControlClient {
     socket_path: String,
 }
 
-impl ControlSocketClient {
+impl RadianceControlClient {
     pub fn new(socket_path: impl AsRef<Path>) -> Self {
         Self {
             socket_path: socket_path.as_ref().to_string_lossy().to_string(),
@@ -95,5 +96,49 @@ impl ControlSocketClient {
 
     pub async fn get_certificate(&self, id: String) -> Result<ControlResponse> {
         self.send_command(ControlCommand::GetCertificate { id }).await
+    }
+}
+
+/// Streaming client for subscribing to certificate updates from zenith's control socket
+pub struct ZenithCertificateClient {
+    buf_reader: BufReader<OwnedReadHalf>,
+    buffer: Vec<u8>,
+}
+
+impl ZenithCertificateClient {
+    pub async fn new(path: &str, id: &str) -> anyhow::Result<Self> {        
+        let stream = UnixStream::connect(path).await?;
+        let (reader, mut writer) = stream.into_split();
+        let command = zenith_types::ControlCommand::SubscribeCertificate {
+            id: id.to_string(),
+        };
+        let command_json = serde_json::to_string(&command)?;
+        writer.write_all(command_json.as_bytes()).await?;
+        writer.write_all(b"\n").await?;
+        writer.flush().await?;
+        let buf_reader = BufReader::new(reader);
+        Ok(Self { buf_reader, buffer: Vec::new() })
+    }
+
+    pub async fn read(&mut self) -> anyhow::Result<zenith_types::Certificate> {
+        self.buf_reader.read_until(b'\n', &mut self.buffer).await?;
+        let response: zenith_types::ControlResponse = serde_json::from_slice(&self.buffer)?;
+        self.buffer.clear();
+        let zenith_types::ControlResponse::Success { data } = &response else {
+            return Err(anyhow::anyhow!("Failed to get certificate: {:?}", response));
+        };
+        let certificate: zenith_types::Certificate = serde_json::from_value(data.clone())?;
+        Ok(certificate)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ZenithControlClient {
+    socket_path: String,
+}
+
+impl ZenithControlClient {
+    pub fn new(socket_path: String) -> Self {
+        Self { socket_path }
     }
 }

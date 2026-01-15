@@ -1,6 +1,7 @@
 use crate::store::Store;
-use crate::{acme_provider::AcmeProviderType, control_socket::ControlSocket};
+use radiance_control::{RadianceControlClient};
 use crate::dns_provider::DnsProvider;
+use crate::acme_provider::AcmeProviderType;
 use anyhow::{Result, anyhow};
 use instant_acme::{Account, ChallengeType, Identifier, NewOrder, OrderStatus};
 use rcgen::{CertificateParams, KeyPair};
@@ -13,7 +14,7 @@ pub struct AcmeService {
     account_email: String,
     acme_provider: AcmeProviderType,
     dns_provider: Option<Arc<dyn DnsProvider>>,
-    control_socket: Option<ControlSocket>,
+    control_socket: Option<RadianceControlClient>,
 }
 
 pub struct CertificateResult {
@@ -27,7 +28,7 @@ impl AcmeService {
         account_email: String,
         acme_provider: AcmeProviderType,
         dns_provider: Option<Arc<dyn DnsProvider>>,
-        control_socket: Option<ControlSocket>,
+        control_socket: Option<RadianceControlClient>,
     ) -> Self {
         Self {
             account_email,
@@ -174,7 +175,7 @@ impl AcmeService {
                             let token = &challenge.token;
                             let key_authorization = order.key_authorization(challenge);
                             control_socket
-                                .set_http_challenge(domain, token, &key_authorization.as_str())
+                                .set_http_challenge(domain.to_string(), token.to_string(), key_authorization.as_str().to_string())
                                 .await?;
                 
                             info!("Validating challenge");
@@ -192,7 +193,7 @@ impl AcmeService {
                                     }
                                     OrderStatus::Invalid => {
                                         control_socket
-                                            .clear_http_challenge(domain, token)
+                                            .clear_http_challenge(domain.to_string(), token.to_string())
                                             .await
                                             .ok();
                                         return Err(anyhow!("Challenge validation failed"));
@@ -201,7 +202,7 @@ impl AcmeService {
                                         attempts += 1;
                                         if attempts > 30 {
                                             control_socket
-                                                .clear_http_challenge(domain, token)
+                                                .clear_http_challenge(domain.to_string(), token.to_string())
                                                 .await
                                                 .ok();
                                             return Err(anyhow!("Challenge validation timeout"));
@@ -210,7 +211,7 @@ impl AcmeService {
                                 }
                             }
                             control_socket
-                                .clear_http_challenge(domain, token)
+                                .clear_http_challenge(domain.to_string(), token.to_string())
                                 .await?;
                         } else {
                             return Err(anyhow!(

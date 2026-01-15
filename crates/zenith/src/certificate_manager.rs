@@ -1,7 +1,7 @@
 use crate::acme::AcmeService;
 use crate::acme_provider::AcmeProviderType;
 use crate::config::StoreLocation;
-use crate::control_socket::ControlSocket;
+use radiance_control::{RadianceControlClient};
 use crate::dns_provider::DnsProvider;
 use crate::store::{LocalStore, Store, VaultStore};
 use anyhow::Result;
@@ -22,7 +22,7 @@ pub struct CertificateManager {
 impl CertificateManager {
     pub async fn new(id: String, config: CertificateConfig, dns_provider: Option<Arc<dyn DnsProvider>>, store_location: StoreLocation) -> Result<Self> {
         let acme_provider = AcmeProviderType::from_string(&config.acme_provider)?;
-        let socket = config.control_socket.clone().map(|s| ControlSocket::new(s));
+        let socket = config.control_socket.clone().map(|s| RadianceControlClient::new(s));
         let acme_service =
             AcmeService::new(config.account_email.clone(), acme_provider, dns_provider, socket.clone());
         let store: Arc<dyn Store> = match store_location {
