@@ -4,6 +4,18 @@ use std::path::Path;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixStream, unix::OwnedReadHalf};
 
+pub async fn send(to: &str, data: &str) -> Result<String> {
+    let stream = UnixStream::connect(to).await?;
+    let (reader, mut writer) = stream.into_split();
+    writer.write_all(data.as_bytes()).await?;
+    writer.write_all(b"\n").await?;
+    writer.flush().await?;
+    let mut buf_reader = BufReader::new(reader);
+    let mut response_line = String::new();
+    buf_reader.read_line(&mut response_line).await?;
+    Ok(response_line)
+}
+
 #[derive(Clone, Debug)]
 pub struct RadianceControlClient {
     socket_path: String,
@@ -17,15 +29,7 @@ impl RadianceControlClient {
     }
 
     pub async fn send_command(&self, command: ControlCommand) -> Result<ControlResponse> {
-        let stream = UnixStream::connect(&self.socket_path).await?;
-        let (reader, mut writer) = stream.into_split();
-        let command_json = serde_json::to_string(&command)?;
-        writer.write_all(command_json.as_bytes()).await?;
-        writer.write_all(b"\n").await?;
-        writer.flush().await?;
-        let mut buf_reader = BufReader::new(reader);
-        let mut response_line = String::new();
-        buf_reader.read_line(&mut response_line).await?;
+        let response_line = send(&self.socket_path, &serde_json::to_string(&command)?).await?;
         let response: ControlResponse = serde_json::from_str(&response_line)?;
         Ok(response)
     }
@@ -140,5 +144,43 @@ pub struct ZenithControlClient {
 impl ZenithControlClient {
     pub fn new(socket_path: String) -> Self {
         Self { socket_path }
+    }
+
+    pub async fn send_command(&self, command: zenith_types::ControlCommand) -> Result<zenith_types::ControlResponse> {
+        let response_line = send(&self.socket_path, &serde_json::to_string(&command)?).await?;
+        let response: zenith_types::ControlResponse = serde_json::from_str(&response_line)?;
+        Ok(response)
+    }
+
+    pub async fn get_certificate(&self, id: String) -> Result<zenith_types::ControlResponse> {
+        self.send_command(zenith_types::ControlCommand::GetCertificate { id }).await
+    }
+
+    pub async fn add_certificate(
+        &self,
+        id: String,
+        certificate: zenith_types::CertificateConfig,
+    ) -> Result<zenith_types::ControlResponse> {
+        self.send_command(zenith_types::ControlCommand::AddCertificate { certificate, id })
+            .await
+    }
+
+    pub async fn remove_certificate(&self, id: String) -> Result<zenith_types::ControlResponse> {
+        self.send_command(zenith_types::ControlCommand::RemoveCertificate { id })
+            .await
+    }
+
+    pub async fn list_certificates(&self) -> Result<zenith_types::ControlResponse> {
+        self.send_command(zenith_types::ControlCommand::ListCertificates).await
+    }
+
+    pub async fn get_renew_status(&self, id: String) -> Result<zenith_types::ControlResponse> {
+        self.send_command(zenith_types::ControlCommand::GetRenewStatus { id })
+            .await
+    }
+
+    pub async fn force_renew(&self, id: String) -> Result<zenith_types::ControlResponse> {
+        self.send_command(zenith_types::ControlCommand::ForceRenew { id })
+            .await
     }
 }
