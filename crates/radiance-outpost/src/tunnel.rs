@@ -148,8 +148,9 @@ impl Tunnel {
                             let tcp = tcp.clone();
                             let udp = udp.clone();
                             let shared_secret = self.shared_secret;
+                            let connection = self.connection.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = Self::handle_incoming_stream(recv, tcp, udp, shared_secret).await {
+                                if let Err(e) = Self::handle_incoming_stream(recv, tcp, udp, shared_secret, connection).await {
                                     error!("Error handling incoming stream: {}", e);
                                 }
                             });
@@ -209,6 +210,7 @@ impl Tunnel {
         tcp: TcpForwarder,
         udp: UdpForwarder,
         shared_secret: u128,
+        connection: Connection,
     ) -> Result<()> {
         let mut buffer = Vec::new();
         loop {
@@ -229,7 +231,7 @@ impl Tunnel {
                                     continue;
                                 }
                                 info!("Processing stream message: {:?}", data.msg);
-                                Self::handle_protocol_message(&data.msg, &tcp, &udp);
+                                Self::handle_protocol_message(&data.msg, &tcp, &udp, shared_secret, &connection).await;
                             }
                             Err(e) => {
                                 warn!("Failed to deserialize message: {:?}", e);
@@ -250,7 +252,13 @@ impl Tunnel {
         Ok(())
     }
 
-    fn handle_protocol_message(msg: &ArchivedProtocolS2C, tcp: &TcpForwarder, _udp: &UdpForwarder) {
+    async fn handle_protocol_message(
+        msg: &ArchivedProtocolS2C,
+        tcp: &TcpForwarder,
+        _udp: &UdpForwarder,
+        shared_secret: u128,
+        connection: &Connection,
+    ) {
         match msg {
             ArchivedProtocolS2C::Tcp { id, data } => {
                 let tcp_id = id.to_native();
@@ -272,19 +280,94 @@ impl Tunnel {
                 let tcp_id = id.to_native();
                 tcp.disconnect(tcp_id);
             }
-            ArchivedProtocolS2C::SignalFwdAdd { host, port, .. } => {
-                debug!("TODO: SignalFwdAdd {}:{}", host, port);
+            ArchivedProtocolS2C::SignalFwdAdd { host, port, req } => {
+                let req_id = req.to_native();
+                info!("Received SignalFwdAdd request for {}:{}", host, port);
+                // TODO: add dynamic config
+                let response = StreamC2S {
+                    cid: shared_secret,
+                    msg: ProtocolC2S::SignalFwdAdd { req: req_id },
+                };
+                if let Err(e) = Self::send_response(connection, response).await {
+                    error!("Failed to send SignalFwdAdd response: {}", e);
+                }
             }
-            ArchivedProtocolS2C::SignalFwdRemove { host, port, .. } => {
-                debug!("TODO: SignalFwdRemove {}:{}", host, port);
+            ArchivedProtocolS2C::SignalFwdRemove { host, port, req } => {
+                let req_id = req.to_native();
+                info!("Received SignalFwdRemove request for {}:{}", host, port);
+                let response = StreamC2S {
+                    cid: shared_secret,
+                    msg: ProtocolC2S::SignalFwdRemove { req: req_id },
+                };
+                if let Err(e) = Self::send_response(connection, response).await {
+                    error!("Failed to send SignalFwdRemove response: {}", e);
+                }
             }
-            ArchivedProtocolS2C::SignalFwdList { .. } => {
-                debug!("TODO: SignalFwdList");
+            ArchivedProtocolS2C::SignalFwdList { req } => {
+                let req_id = req.to_native();
+                info!("Received SignalFwdList request");
+                // TODO:
+                let entries: Vec<(String, u16)> = Vec::new();
+                let response = StreamC2S {
+                    cid: shared_secret,
+                    msg: ProtocolC2S::SignalFwdList {
+                        entries,
+                        req: req_id,
+                    },
+                };
+                if let Err(e) = Self::send_response(connection, response).await {
+                    error!("Failed to send SignalFwdList response: {}", e);
+                }
             }
-            ArchivedProtocolS2C::Dns { host, .. } => {
-                debug!("TODO: DNS query for {}", host);
+            ArchivedProtocolS2C::Dns { host, req } => {
+                let req_id = req.to_native();
+                let hostname = host.to_string();
+                info!("Received DNS query request for {}", hostname);
+                match tokio::net::lookup_host(format!("{}:0", hostname)).await {
+                    Ok(mut addrs) => {
+                        if let Some(addr) = addrs.next() {
+                            let ip = addr.ip().to_string();
+                            info!("DNS resolved {} to {}", hostname, ip);
+                            let response = StreamC2S {
+                                cid: shared_secret,
+                                msg: ProtocolC2S::Dns {
+                                    host: hostname.clone(),
+                                    ip,
+                                    req: req_id,
+                                },
+                            };
+                            if let Err(e) = Self::send_response(connection, response).await {
+                                error!("Failed to send DNS response: {}", e);
+                            }
+                        } else {
+                            warn!("DNS lookup for {} returned no addresses", hostname);
+                        }
+                    }
+                    Err(e) => {
+                        error!("DNS lookup failed for {}: {}", hostname, e);
+                    }
+                }
             }
         }
+    }
+
+    async fn send_response(connection: &Connection, msg: StreamC2S) -> Result<()> {
+        let buf = rkyv::to_bytes::<rkyv::rancor::Error>(&msg)
+            .context("Failed to serialize response message")?;
+        let mut send_buf = Vec::new();
+        send_buf.extend_from_slice(&(buf.len() as u16).to_be_bytes());
+        send_buf.extend_from_slice(&buf);
+        
+        let (mut send, _recv) = connection
+            .open_bi()
+            .await
+            .context("Failed to open bi-directional stream for response")?;
+        send.write_all(&send_buf)
+            .await
+            .context("Failed to write response message")?;
+        send.finish().context("Failed to finish stream")?;
+        
+        Ok(())
     }
 
     async fn handle_datagram(&self, data: &[u8], udp: &UdpForwarder) -> Result<()> {

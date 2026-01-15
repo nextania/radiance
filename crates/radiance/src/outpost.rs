@@ -5,10 +5,10 @@ use dashmap::DashMap;
 use lazy_static::lazy_static;
 use quinn::{Connection, Endpoint, RecvStream, SendStream, ServerConfig};
 use rand::RngCore;
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::{sync::{mpsc::UnboundedSender, oneshot}, time::timeout};
 use tracing::{debug, error, info, warn};
 use radiance_types::{
-    ArchivedDatagramMessage, ArchivedProtocolC2S, ArchivedStreamC2S, ProtocolS2C, StreamS2C,
+    ArchivedDatagramMessage, ArchivedProtocolC2S, ArchivedStreamC2S, DatagramMessage, ProtocolS2C, StreamS2C
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 
@@ -19,9 +19,10 @@ use crate::{
 lazy_static! {
     // TODO: cleanup on disconnect
     // (stream id, bytes)
-    pub static ref ACTIVE_OUTPOSTS: DashMap<String, UnboundedSender<ProtocolS2C>> = DashMap::new();
+    pub static ref ACTIVE_OUTPOSTS: DashMap<String, (UnboundedSender<ProtocolS2C>, UnboundedSender<DatagramMessage>)> = DashMap::new();
     pub static ref ACTIVE_REQUESTS: DashMap<u64, oneshot::Sender<OutpostResponse>> = DashMap::new();
     pub static ref ACTIVE_TCP_STREAMS: DashMap<u64, UnboundedSender<Vec<u8>>> = DashMap::new();
+    pub static ref ACTIVE_UDP_STREAMS: DashMap<u64, UnboundedSender<Vec<u8>>> = DashMap::new();
 }
 #[derive(Debug)]
 pub enum OutpostRequest {
@@ -105,19 +106,23 @@ pub async fn request(outpost_id: String, body: OutpostRequest) -> anyhow::Result
             let (tx, rx) = oneshot::channel();
             ACTIVE_REQUESTS.insert(req_id, tx);
             let outpost = outpost.unwrap();
-            outpost.send(req).context("Failed to send OutpostRequest")?;
+            outpost.0.send(req).context("Failed to send OutpostRequest")?;
 
-            match rx.await {
-                Ok(response) => Ok(response),
-                Err(e) => {
+            match timeout(Duration::from_secs(10), rx).await {
+                Ok(Ok(response)) => Ok(response),
+                Ok(Err(e)) => {
                     error!("Failed to receive OutpostResponse: {}", e);
                     Err(anyhow::anyhow!("Failed to receive OutpostResponse"))
+                }
+                Err(_) => {
+                    error!("Timeout waiting for OutpostResponse");
+                    Err(anyhow::anyhow!("Timeout waiting for OutpostResponse"))
                 }
             }
         }
         _ => {
             let outpost = outpost.unwrap();
-            outpost.send(req).context("Failed to send OutpostRequest")?;
+            outpost.0.send(req).context("Failed to send OutpostRequest")?;
             Ok(OutpostResponse::Done)
         }
     }
@@ -264,6 +269,7 @@ async fn handle_connection(
 
     let outpost_identity = Arc::new(tokio::sync::RwLock::new(None::<(String, OutpostConfig)>));
     let (streams_tx, mut streams_rx) = tokio::sync::mpsc::unbounded_channel::<ProtocolS2C>();
+    let (datagrams_tx, mut datagrams_rx) = tokio::sync::mpsc::unbounded_channel::<DatagramMessage>();
     let mut tcp_stream_map: HashMap<u64, SendStream> = HashMap::new();
 
     loop {
@@ -274,8 +280,9 @@ async fn handle_connection(
                         let outposts = outposts.clone();
                         let identity = outpost_identity.clone();
                         let streams_tx = streams_tx.clone();
+                        let datagrams_tx = datagrams_tx.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_incoming_stream(recv, outposts, identity, streams_tx).await {
+                            if let Err(e) = handle_incoming_stream(recv, outposts, identity, streams_tx, datagrams_tx).await {
                                 error!("Error handling incoming stream: {}", e);
                             }
                         });
@@ -316,6 +323,17 @@ async fn handle_connection(
                     }
                 }
             }
+
+            Some(mut msg) = datagrams_rx.recv() => {
+                let identity_guard = outpost_identity.read().await;
+                if let Some(identity) = identity_guard.as_ref() {
+                    msg.cid = u128::from_str_radix(&identity.1.shared_secret, 16).unwrap();
+                    let data = rkyv::to_bytes::<rkyv::rancor::Error>(&msg).unwrap();
+                    if let Err(e) = connection.send_datagram(data.to_vec().into()) {
+                        error!("Error sending datagram: {}", e);
+                    }
+                }
+            }
         }
 
         if connection.close_reason().is_some() {
@@ -337,7 +355,8 @@ async fn handle_incoming_stream(
     mut recv: RecvStream,
     outposts: HashMap<String, OutpostConfig>,
     current_identity: Arc<tokio::sync::RwLock<Option<(String, OutpostConfig)>>>,
-    streams_tx: tokio::sync::mpsc::UnboundedSender<ProtocolS2C>,
+    streams_tx: UnboundedSender<ProtocolS2C>,
+    datagrams_tx: UnboundedSender<DatagramMessage>,
 ) -> anyhow::Result<()> {
     let mut buffer = Vec::new();
 
@@ -365,7 +384,7 @@ async fn handle_incoming_stream(
                                 drop(identity_guard);
 
                                 if should_register {
-                                    ACTIVE_OUTPOSTS.insert(outpost.0.clone(), streams_tx.clone());
+                                    ACTIVE_OUTPOSTS.insert(outpost.0.clone(), (streams_tx.clone(), datagrams_tx.clone()));
                                     info!("Outpost {} registered", outpost.0);
                                 }
 
