@@ -140,8 +140,8 @@ async fn main() -> Result<()> {
             .service(
                 web::scope("/certificates")
                 .wrap(AuthMiddleware)
-                .route("/", web::get().to(handlers::list_certificates))
-                .route("/", web::post().to(handlers::add_certificate))
+                    .route("", web::get().to(handlers::list_certificates))
+                    .route("", web::post().to(handlers::add_certificate))
                 .route("/{id}", web::get().to(handlers::get_certificate))
                     .route("/{id}", web::delete().to(handlers::remove_certificate)),
             )
