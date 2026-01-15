@@ -1,16 +1,18 @@
-use zenith_types::{ControlCommand, ControlError, ControlResponse, CertificateConfig};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{UnixListener, UnixStream},
-    sync::{broadcast},
-};
 use anyhow::Result;
 use serde_json::json;
 use std::{collections::HashMap, path::Path, sync::Arc};
 use tokio::sync::RwLock;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::{UnixListener, UnixStream},
+    sync::broadcast,
+};
 use tracing::{error, info, warn};
+use zenith_types::{CertificateConfig, ControlCommand, ControlError, ControlResponse};
 
-use crate::{certificate_manager::CertificateManager, config::StoreLocation, dns_provider::{DnsProvider}};
+use crate::{
+    certificate_manager::CertificateManager, config::StoreLocation, dns_provider::DnsProvider,
+};
 
 pub struct ControlSocketServer {
     socket_path: String,
@@ -68,7 +70,7 @@ impl ControlSocketServer {
         loop {
             line.clear();
             let bytes_read = reader.read_line(&mut line).await?;
-            
+
             if bytes_read == 0 {
                 break;
             }
@@ -117,15 +119,21 @@ impl ControlSocketServer {
 
     async fn get_certificate(&self, id: String) -> ControlResponse {
         let certificates = self.certificates.read().await;
-        
+
         match certificates.get(&id) {
             Some(cert_manager) => {
                 let config = cert_manager.config();
                 let cert = cert_manager.read_current().await;
                 if let Ok(cert) = cert {
                     let expiry = if cert.is_some() {
-                        Some(cert_manager.check_renewal_status().await.expect("should exist")
-                        .days_remaining.expect("days_remaining should be present"))
+                        Some(
+                            cert_manager
+                                .check_renewal_status()
+                                .await
+                                .expect("should exist")
+                                .days_remaining
+                                .expect("days_remaining should be present"),
+                        )
                     } else {
                         None
                     };
@@ -149,7 +157,7 @@ impl ControlSocketServer {
 
     async fn handle_subscription(&self, id: String, stream: &mut UnixStream) -> Result<()> {
         let certificates = self.certificates.read().await;
-        
+
         if !certificates.contains_key(&id) {
             let response = ControlResponse::Error {
                 error: ControlError::CertificateNotFound,
@@ -158,9 +166,9 @@ impl ControlSocketServer {
             stream.write_all(response_json.as_bytes()).await?;
             return Ok(());
         }
-        
+
         drop(certificates);
-        
+
         let mut channels = self.certificate_update_channels.write().await;
         let mut rx = if let Some(tx) = channels.get(&id) {
             tx.subscribe()
@@ -170,9 +178,9 @@ impl ControlSocketServer {
             rx
         };
         drop(channels);
-        
+
         info!("Client subscribed to certificate updates for id: {}", id);
-        
+
         loop {
             match rx.recv().await {
                 Ok(cert_data) => {
@@ -188,7 +196,10 @@ impl ControlSocketServer {
                     }
                 }
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    warn!("Subscription lagged, skipped {} messages for id: {}", skipped, id);
+                    warn!(
+                        "Subscription lagged, skipped {} messages for id: {}",
+                        skipped, id
+                    );
                     continue;
                 }
                 Err(broadcast::error::RecvError::Closed) => {
@@ -197,7 +208,7 @@ impl ControlSocketServer {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -205,7 +216,10 @@ impl ControlSocketServer {
         let channels = self.certificate_update_channels.read().await;
         if let Some(tx) = channels.get(id) {
             if let Err(e) = tx.send(cert_data) {
-                warn!("Failed to broadcast certificate update for id {}: {}", id, e);
+                warn!(
+                    "Failed to broadcast certificate update for id {}: {}",
+                    id, e
+                );
             } else {
                 info!("Broadcast certificate update for id: {}", id);
             }
@@ -214,27 +228,30 @@ impl ControlSocketServer {
 
     async fn add_certificate(&self, certificate: CertificateConfig, id: String) -> ControlResponse {
         let mut certificates = self.certificates.write().await;
-        
+
         if certificates.contains_key(&id) {
             return ControlResponse::Error {
                 error: ControlError::CertificateAlreadyExists,
             };
         }
-        let dns_provider = self.dns_providers
-            .get(&certificate.dns_provider)
-            .cloned();
+        let dns_provider = self.dns_providers.get(&certificate.dns_provider).cloned();
         if dns_provider.is_none() && certificate.control_socket.is_none() {
             return ControlResponse::Error {
                 error: ControlError::NoDnsProviderConfigured,
             };
         }
         // TODO: persist to config file
-        match CertificateManager::new(id.clone(), certificate, dns_provider, self.store_location.clone()).await {
+        match CertificateManager::new(
+            id.clone(),
+            certificate,
+            dns_provider,
+            self.store_location.clone(),
+        )
+        .await
+        {
             Ok(manager) => {
                 certificates.insert(id.clone(), Arc::new(manager));
-                ControlResponse::Success {
-                    data: json!({}),
-                }
+                ControlResponse::Success { data: json!({}) }
             }
             Err(e) => {
                 error!("Failed to add certificate '{}': {}", id, e);
@@ -247,13 +264,11 @@ impl ControlSocketServer {
 
     async fn remove_certificate(&self, id: String) -> ControlResponse {
         let mut certificates = self.certificates.write().await;
-        
+
         if let Some(cert) = certificates.remove(&id) {
             // TODO: Also remove from config file
             cert.mark_discarded();
-            ControlResponse::Success {
-                data: json!({}),
-            }
+            ControlResponse::Success { data: json!({}) }
         } else {
             ControlResponse::Error {
                 error: ControlError::CertificateNotFound,
@@ -263,7 +278,7 @@ impl ControlSocketServer {
 
     async fn list_certificates(&self) -> ControlResponse {
         let certificates = self.certificates.read().await;
-        
+
         let cert_list: Vec<_> = certificates
             .iter()
             .map(|(id, manager)| async {
@@ -290,15 +305,13 @@ impl ControlSocketServer {
 
     async fn get_renew_status(&self, id: String) -> ControlResponse {
         let certificates = self.certificates.read().await;
-        
+
         match certificates.get(&id) {
-            Some(cert_manager) => {
-                ControlResponse::Success {
-                    data: json!({
-                        "renewal_in_progress": cert_manager.is_renewal_in_progress(),
-                    }),
-                }
-            }
+            Some(cert_manager) => ControlResponse::Success {
+                data: json!({
+                    "renewal_in_progress": cert_manager.is_renewal_in_progress(),
+                }),
+            },
             None => ControlResponse::Error {
                 error: ControlError::CertificateNotFound,
             },
@@ -307,7 +320,7 @@ impl ControlSocketServer {
 
     async fn force_renew(&self, id: String) -> ControlResponse {
         let certificates = self.certificates.read().await;
-        
+
         if !certificates.contains_key(&id) {
             return ControlResponse::Error {
                 error: ControlError::CertificateNotFound,
@@ -321,29 +334,44 @@ impl ControlSocketServer {
                     error: ControlError::RenewalAlreadyInProgress,
                 };
             }
-            
+
             let cert_id = id.clone();
             let channels = Arc::clone(&self.certificate_update_channels);
-            
+
             tokio::spawn(async move {
                 match certificate.check_and_renew().await {
                     Ok(renewed) => {
-                        info!("Certificate '{}': Force renewal completed", certificate.name());
-                        
+                        info!(
+                            "Certificate '{}': Force renewal completed",
+                            certificate.name()
+                        );
+
                         if renewed {
-                            let cert_data = serde_json::to_string(&certificate.read_current().await?.expect("Certificate data should be present after renewal"))?;
-                            
+                            let cert_data = serde_json::to_string(
+                                &certificate
+                                    .read_current()
+                                    .await?
+                                    .expect("Certificate data should be present after renewal"),
+                            )?;
+
                             let channels_read = channels.read().await;
                             if let Some(tx) = channels_read.get(&cert_id) {
                                 if let Err(e) = tx.send(cert_data) {
-                                    warn!("Failed to broadcast certificate update for id {}: {}", cert_id, e);
+                                    warn!(
+                                        "Failed to broadcast certificate update for id {}: {}",
+                                        cert_id, e
+                                    );
                                 } else {
                                     info!("Broadcast certificate update for id: {}", cert_id);
                                 }
                             }
                         }
                     }
-                    Err(e) => error!("Certificate '{}': Force renewal failed: {}", certificate.name(), e),
+                    Err(e) => error!(
+                        "Certificate '{}': Force renewal failed: {}",
+                        certificate.name(),
+                        e
+                    ),
                 }
                 Ok::<(), anyhow::Error>(())
             });
@@ -353,8 +381,6 @@ impl ControlSocketServer {
             };
         }
 
-        ControlResponse::Success {
-            data: json!({}),
-        }
+        ControlResponse::Success { data: json!({}) }
     }
 }

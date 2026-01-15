@@ -4,24 +4,33 @@ use crate::CertificateConfig;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ControlCommand {
-    GetCertificate { id: String },
-    SubscribeCertificate { id: String },
-    AddCertificate { certificate: CertificateConfig, id: String },
-    RemoveCertificate { id: String },
+    GetCertificate {
+        id: String,
+    },
+    SubscribeCertificate {
+        id: String,
+    },
+    AddCertificate {
+        certificate: CertificateConfig,
+        id: String,
+    },
+    RemoveCertificate {
+        id: String,
+    },
     ListCertificates,
-    GetRenewStatus { id: String },
-    ForceRenew { id: String },
+    GetRenewStatus {
+        id: String,
+    },
+    ForceRenew {
+        id: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum ControlResponse {
-    Success {
-        data: serde_json::Value,
-    },
-    Error {
-        error: ControlError,
-    },
+    Success { data: serde_json::Value },
+    Error { error: ControlError },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "error", rename_all = "SCREAMING_SNAKE_CASE")]

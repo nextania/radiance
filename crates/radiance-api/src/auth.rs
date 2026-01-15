@@ -1,5 +1,7 @@
 use actix_web::{
-    HttpMessage, HttpResponse, dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready}, web
+    HttpMessage, HttpResponse,
+    dev::{Service, ServiceRequest, ServiceResponse, Transform, forward_ready},
+    web,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use dashmap::DashMap;
@@ -7,18 +9,37 @@ use futures_util::future::LocalBoxFuture;
 use lazy_static::lazy_static;
 use mongodb::bson::doc;
 use once_cell::sync::Lazy;
-use openidconnect::{AdditionalClaims, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken, EmptyExtraTokenFields, EndpointMaybeSet, EndpointNotSet, EndpointSet, IdToken, IdTokenFields, IssuerUrl, Nonce, NonceVerifier, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, StandardErrorResponse, StandardTokenResponse, TokenResponse, core::{CoreAuthDisplay, CoreAuthPrompt, CoreAuthenticationFlow, CoreErrorResponseType, CoreGenderClaim, CoreJsonWebKey, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm, CoreProviderMetadata, CoreRevocableToken, CoreRevocationErrorResponse, CoreTokenIntrospectionResponse, CoreTokenType}};
+use openidconnect::{
+    AdditionalClaims, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken,
+    EmptyExtraTokenFields, EndpointMaybeSet, EndpointNotSet, EndpointSet, IdToken, IdTokenFields,
+    IssuerUrl, Nonce, NonceVerifier, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope,
+    StandardErrorResponse, StandardTokenResponse, TokenResponse,
+    core::{
+        CoreAuthDisplay, CoreAuthPrompt, CoreAuthenticationFlow, CoreErrorResponseType,
+        CoreGenderClaim, CoreJsonWebKey, CoreJweContentEncryptionAlgorithm,
+        CoreJwsSigningAlgorithm, CoreProviderMetadata, CoreRevocableToken,
+        CoreRevocationErrorResponse, CoreTokenIntrospectionResponse, CoreTokenType,
+    },
+};
 use reqwest::{ClientBuilder, redirect::Policy};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, str::FromStr};
-use std::future::{ready, Ready};
+use std::future::{Ready, ready};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::{collections::HashMap, str::FromStr};
 
-use crate::{config::ApiConfig, sessions::{OidcSessionData, Session}, errors::Error};
+use crate::{
+    config::ApiConfig,
+    errors::Error,
+    sessions::{OidcSessionData, Session},
+};
 
-static ASYNC_HTTP_CLIENT: Lazy<reqwest::Client> =
-    Lazy::new(|| ClientBuilder::new().redirect(Policy::none()).build().unwrap());
+static ASYNC_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    ClientBuilder::new()
+        .redirect(Policy::none())
+        .build()
+        .unwrap()
+});
 
 #[derive(Clone)]
 pub struct AuthMiddleware;
@@ -80,13 +101,14 @@ where
                     .ok_or(Error::MissingToken)?;
                 let token = authorization.to_str().map_err(|_| Error::InvalidToken)?;
                 Session::validate(token).await?.ok_or(Error::InvalidToken)
-            }.await.map_err(|e| actix_web::Error::from(e))?;
+            }
+            .await
+            .map_err(|e| actix_web::Error::from(e))?;
             req.extensions_mut().insert(session);
             srv.call(req).await
         })
     }
 }
-
 
 #[derive(Debug, Deserialize)]
 pub struct OidcCallbackQuery {
@@ -107,25 +129,36 @@ type ActualClient = Client<
     CoreTokenIntrospectionResponse,
     CoreRevocableToken,
     CoreRevocationErrorResponse,
-    EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointMaybeSet, EndpointMaybeSet,
+    EndpointSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointMaybeSet,
+    EndpointMaybeSet,
 >;
 
-type ActualTokenResponse = StandardTokenResponse<IdTokenFields<
-    SidAdditionalClaims,
-    EmptyExtraTokenFields,
-    CoreGenderClaim,
-    CoreJweContentEncryptionAlgorithm,
-    CoreJwsSigningAlgorithm,
->, CoreTokenType>;
+type ActualTokenResponse = StandardTokenResponse<
+    IdTokenFields<
+        SidAdditionalClaims,
+        EmptyExtraTokenFields,
+        CoreGenderClaim,
+        CoreJweContentEncryptionAlgorithm,
+        CoreJwsSigningAlgorithm,
+    >,
+    CoreTokenType,
+>;
 
-pub async fn resolve_oidc_clients(config: &ApiConfig) -> Result<HashMap<String, ActualClient>, anyhow::Error> {
+pub async fn resolve_oidc_clients(
+    config: &ApiConfig,
+) -> Result<HashMap<String, ActualClient>, anyhow::Error> {
     let mut clients: HashMap<String, ActualClient> = HashMap::new();
 
     for provider in &config.oidc_providers {
         let issuer_url = IssuerUrl::new(provider.issuer_url.clone())?;
-        let metadata = CoreProviderMetadata::discover_async(issuer_url, &*ASYNC_HTTP_CLIENT).await?;
+        let metadata =
+            CoreProviderMetadata::discover_async(issuer_url, &*ASYNC_HTTP_CLIENT).await?;
 
-        let client  = ActualClient::from_provider_metadata(
+        let client = ActualClient::from_provider_metadata(
             metadata,
             ClientId::new(provider.client_id.clone()),
             Some(ClientSecret::new(provider.client_secret.clone())),
@@ -208,9 +241,7 @@ pub async fn oidc_callback(
         .request_async(&*ASYNC_HTTP_CLIENT)
         .await
         .map_err(|_| Error::OidcServerError)?;
-    let id_token = token_response
-        .id_token()
-        .ok_or(Error::OidcServerError)?;
+    let id_token = token_response.id_token().ok_or(Error::OidcServerError)?;
     let claims = id_token
         .claims(&client.id_token_verifier(), &oidc_state.nonce)
         .map_err(|_| Error::CredentialError)?;
@@ -221,8 +252,16 @@ pub async fn oidc_callback(
         provider: oidc_state.provider.clone(),
         subject: sub,
         sid,
-    })).await?;
-    let continue_url = format!("/authenticate?token={}&continue={}", session.token, oidc_state.r#continue.clone().unwrap_or_else(|| "/".to_string()));
+    }))
+    .await?;
+    let continue_url = format!(
+        "/authenticate?token={}&continue={}",
+        session.token,
+        oidc_state
+            .r#continue
+            .clone()
+            .unwrap_or_else(|| "/".to_string())
+    );
     Ok(HttpResponse::Found()
         .append_header(("Location", continue_url))
         .finish())
@@ -288,21 +327,28 @@ impl NonceVerifier for LogoutNonceVerifier {
 // see: https://auth0.com/docs/authenticate/login/logout/back-channel-logout/configure-back-channel-logout
 pub async fn logout_backchannel(
     oidc_clients: web::Data<Arc<HashMap<String, ActualClient>>>,
-    idp: web::Path<String>, 
-    token: web::Form<LogoutBackchannelRequest>
+    idp: web::Path<String>,
+    token: web::Form<LogoutBackchannelRequest>,
 ) -> Result<HttpResponse, Error> {
     let client = oidc_clients
         .get(idp.as_str())
         .ok_or(Error::OidcNotConfigured)?;
-    let id_token: Result<IdToken<SidAdditionalClaims, CoreGenderClaim,
-    CoreJweContentEncryptionAlgorithm,
-    CoreJwsSigningAlgorithm>, serde_json::Error> = IdToken::from_str(&token.logout_token);
+    let id_token: Result<
+        IdToken<
+            SidAdditionalClaims,
+            CoreGenderClaim,
+            CoreJweContentEncryptionAlgorithm,
+            CoreJwsSigningAlgorithm,
+        >,
+        serde_json::Error,
+    > = IdToken::from_str(&token.logout_token);
     if let Ok(id_token) = id_token {
         let claims = id_token
             .claims(&client.id_token_verifier(), LogoutNonceVerifier)
             .map_err(|_| Error::BackchannelLogoutError)?;
         let sub = claims.subject().as_str().to_string();
-        Session::delete_oidc(&idp, &sub, &claims.additional_claims().sid).await
+        Session::delete_oidc(&idp, &sub, &claims.additional_claims().sid)
+            .await
             .map_err(|_| Error::BackchannelLogoutError)?;
         Ok(HttpResponse::Ok().json(serde_json::json!({})))
     } else {
@@ -316,9 +362,7 @@ pub struct ValidateResponse {
     pub expires_at: u64,
 }
 
-pub async fn validate(
-    session: web::ReqData<Session>,
-) -> Result<HttpResponse, Error> {
+pub async fn validate(session: web::ReqData<Session>) -> Result<HttpResponse, Error> {
     Ok(HttpResponse::Ok().json(ValidateResponse {
         expires_at: session.expires_at,
     }))

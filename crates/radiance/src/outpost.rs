@@ -4,17 +4,19 @@ use anyhow::Context;
 use dashmap::DashMap;
 use lazy_static::lazy_static;
 use quinn::{Connection, Endpoint, RecvStream, SendStream, ServerConfig};
-use rand::RngCore;
-use tokio::{sync::{mpsc::UnboundedSender, oneshot}, time::timeout};
-use tracing::{debug, error, info, warn};
 use radiance_types::{
-    ArchivedDatagramMessage, ArchivedProtocolC2S, ArchivedStreamC2S, DatagramMessage, ProtocolS2C, StreamS2C
+    ArchivedDatagramMessage, ArchivedProtocolC2S, ArchivedStreamC2S, DatagramMessage, ProtocolS2C,
+    StreamS2C,
 };
+use rand::RngCore;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
-
-use crate::{
-    config::OutpostConfig,
+use tokio::{
+    sync::{mpsc::UnboundedSender, oneshot},
+    time::timeout,
 };
+use tracing::{debug, error, info, warn};
+
+use crate::config::OutpostConfig;
 
 lazy_static! {
     // TODO: cleanup on disconnect
@@ -106,7 +108,10 @@ pub async fn request(outpost_id: String, body: OutpostRequest) -> anyhow::Result
             let (tx, rx) = oneshot::channel();
             ACTIVE_REQUESTS.insert(req_id, tx);
             let outpost = outpost.unwrap();
-            outpost.0.send(req).context("Failed to send OutpostRequest")?;
+            outpost
+                .0
+                .send(req)
+                .context("Failed to send OutpostRequest")?;
 
             match timeout(Duration::from_secs(10), rx).await {
                 Ok(Ok(response)) => Ok(response),
@@ -122,7 +127,10 @@ pub async fn request(outpost_id: String, body: OutpostRequest) -> anyhow::Result
         }
         _ => {
             let outpost = outpost.unwrap();
-            outpost.0.send(req).context("Failed to send OutpostRequest")?;
+            outpost
+                .0
+                .send(req)
+                .context("Failed to send OutpostRequest")?;
             Ok(OutpostResponse::Done)
         }
     }
@@ -269,7 +277,8 @@ async fn handle_connection(
 
     let outpost_identity = Arc::new(tokio::sync::RwLock::new(None::<(String, OutpostConfig)>));
     let (streams_tx, mut streams_rx) = tokio::sync::mpsc::unbounded_channel::<ProtocolS2C>();
-    let (datagrams_tx, mut datagrams_rx) = tokio::sync::mpsc::unbounded_channel::<DatagramMessage>();
+    let (datagrams_tx, mut datagrams_rx) =
+        tokio::sync::mpsc::unbounded_channel::<DatagramMessage>();
     let mut tcp_stream_map: HashMap<u64, SendStream> = HashMap::new();
 
     loop {
@@ -384,7 +393,10 @@ async fn handle_incoming_stream(
                                 drop(identity_guard);
 
                                 if should_register {
-                                    ACTIVE_OUTPOSTS.insert(outpost.0.clone(), (streams_tx.clone(), datagrams_tx.clone()));
+                                    ACTIVE_OUTPOSTS.insert(
+                                        outpost.0.clone(),
+                                        (streams_tx.clone(), datagrams_tx.clone()),
+                                    );
                                     info!("Outpost {} registered", outpost.0);
                                 }
 

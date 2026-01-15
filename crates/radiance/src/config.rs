@@ -1,22 +1,26 @@
 use std::{
     collections::{BTreeSet, HashMap},
     net::ToSocketAddrs,
-    sync::{Arc, atomic::{AtomicBool, Ordering}}, time::Duration,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
 use async_trait::async_trait;
 use futures_util::FutureExt;
 use http::Extensions;
-use pingora::{
-    protocols::l4::{
-        socket::SocketAddr,
-    },
-};
+use pingora::protocols::l4::socket::SocketAddr;
 use pingora_load_balancing::{
     Backend, Backends, LoadBalancer, discovery::Static, prelude::RoundRobin,
 };
 use radiance_types::{HostConfig, ServerConfig, TlsCertConfig};
-use rustls::{crypto::ring::sign::any_supported_type, pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject}, sign::CertifiedKey};
+use rustls::{
+    crypto::ring::sign::any_supported_type,
+    pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
+    sign::CertifiedKey,
+};
 use serde::{Deserialize, Serialize};
 use tokio::{fs::File, io::AsyncReadExt, time};
 
@@ -39,9 +43,9 @@ impl TlsCertConfigExt for TlsCertConfig {
             TlsCertConfig::Vault { .. } => {
                 Err(anyhow::anyhow!("Vault certificate loading not implemented"))
             }
-            TlsCertConfig::Managed { .. } => {
-                Err(anyhow::anyhow!("Managed certificate loading not implemented"))
-            }
+            TlsCertConfig::Managed { .. } => Err(anyhow::anyhow!(
+                "Managed certificate loading not implemented"
+            )),
         }
     }
 }
@@ -60,7 +64,8 @@ async fn read_local_cert(
 }
 
 async fn process_cert(mut cert: &[u8], mut key: &[u8]) -> anyhow::Result<CertifiedKey> {
-    let certs: Vec<CertificateDer> = CertificateDer::pem_reader_iter(&mut cert).collect::<Result<_, _>>()?;
+    let certs: Vec<CertificateDer> =
+        CertificateDer::pem_reader_iter(&mut cert).collect::<Result<_, _>>()?;
     let key = PrivateKeyDer::from_pem_reader(&mut key)?;
     let certified_key = CertifiedKey::new(certs, any_supported_type(&key)?);
     Ok(certified_key)
@@ -69,14 +74,13 @@ async fn process_cert(mut cert: &[u8], mut key: &[u8]) -> anyhow::Result<Certifi
 pub struct TlsCertConfigWithKey {
     pub config: TlsCertConfig,
     pub cert: TlsCertConfigState,
-    pub discarded: Arc<AtomicBool>
+    pub discarded: Arc<AtomicBool>,
 }
 
 pub enum TlsCertConfigState {
     Loaded(CertifiedKey),
     Failed,
 }
-
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -202,7 +206,7 @@ impl From<&FullConfig> for Config {
                 .certificates
                 .clone()
                 .iter()
-                .map(|(k,v)| (k.clone(), v.config.clone()))
+                .map(|(k, v)| (k.clone(), v.config.clone()))
                 .collect(),
             outposts: cfg.outposts.clone(),
             transports: cfg.transports.clone(),
@@ -226,7 +230,7 @@ impl FullConfig {
         for (cert_id, cert_config) in config_to_load.certificates {
             let config_clone = config_ref.clone();
             let cert_config = cert_config.clone();
-            
+
             tokio::spawn(async move {
                 tracing::info!("Loading certificate: {}", cert_id);
                 match time::timeout(Duration::from_secs(10), cert_config.read_cert()).await {
@@ -237,9 +241,8 @@ impl FullConfig {
                             cert: TlsCertConfigState::Loaded(cert),
                             discarded: AtomicBool::new(false).into(),
                         });
-                        if let Some(cert_with_key) = cfg
-                            .certificates
-                            .insert(cert_id.clone(),arc.clone())
+                        if let Some(cert_with_key) =
+                            cfg.certificates.insert(cert_id.clone(), arc.clone())
                         {
                             tracing::info!("Replaced existing certificate: {}", cert_id);
                             cert_with_key.discarded.store(true, Ordering::SeqCst);
@@ -252,9 +255,14 @@ impl FullConfig {
                                 let mut cert = Arc::clone(&arc);
                                 loop {
                                     // await on unix socket
-                                    let mut certificate = radiance_control::ZenithCertificateClient::new(&control_socket, &cert_id).await?;
+                                    let mut certificate =
+                                        radiance_control::ZenithCertificateClient::new(
+                                            &control_socket,
+                                            &cert_id,
+                                        )
+                                        .await?;
                                     let mut interval = time::interval(Duration::from_secs(60));
-                                    tokio::select! { 
+                                    tokio::select! {
                                         new_cert = certificate.read() => {
                                             if !cert.discarded.load(Ordering::SeqCst) &&
                                             let Ok(new_cert) = new_cert {
@@ -286,7 +294,6 @@ impl FullConfig {
                                             }
                                         }
                                     }
-                                    
                                 }
                                 Ok::<(), anyhow::Error>(())
                             });
@@ -303,9 +310,8 @@ impl FullConfig {
                             cert: TlsCertConfigState::Failed,
                             discarded: AtomicBool::new(false).into(),
                         });
-                        if let Some(cert_with_key) = cfg
-                            .certificates
-                            .insert(cert_id.clone(), arc.clone())
+                        if let Some(cert_with_key) =
+                            cfg.certificates.insert(cert_id.clone(), arc.clone())
                         {
                             tracing::info!("Replaced existing certificate: {}", cert_id);
                             cert_with_key.discarded.store(true, Ordering::SeqCst);

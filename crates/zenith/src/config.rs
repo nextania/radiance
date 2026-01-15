@@ -1,8 +1,8 @@
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
-use zenith_types::CertificateConfig;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use zenith_types::CertificateConfig;
 
 use crate::environment::CONFIG_FILE;
 

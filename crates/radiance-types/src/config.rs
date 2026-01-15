@@ -1,21 +1,14 @@
 use std::collections::HashMap;
 
-use partially::{Partial};
+use partially::Partial;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TlsCertConfig {
-    Local {
-        cert_file: String,
-        key_file: String,
-    },
-    Vault {
-        vault_path: String,
-    },
-    Managed {
-        control_socket: String,
-    },
+    Local { cert_file: String, key_file: String },
+    Vault { vault_path: String },
+    Managed { control_socket: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Partial)]

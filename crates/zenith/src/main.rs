@@ -3,8 +3,8 @@ mod acme_provider;
 mod certificate_manager;
 mod cloudflare;
 mod config;
-mod dns_provider;
 pub mod control_socket;
+mod dns_provider;
 pub mod environment;
 pub mod store;
 
@@ -12,11 +12,11 @@ use anyhow::{Result, anyhow};
 use certificate_manager::CertificateManager;
 use cloudflare::CloudflareClient;
 use config::Config;
-use control_socket::{ControlSocketServer};
+use control_socket::ControlSocketServer;
 use dns_provider::DnsProvider;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{RwLock};
+use tokio::sync::RwLock;
 use tracing::{error, info};
 use tracing_subscriber;
 
@@ -49,21 +49,27 @@ async fn main() -> Result<()> {
         .certificates
         .iter()
         .map(|(id, c)| async {
-            let dns_provider = dns_providers
-                .get(&c.dns_provider)
-                .cloned();
+            let dns_provider = dns_providers.get(&c.dns_provider).cloned();
             if dns_provider.is_none() && c.control_socket.is_none() {
                 return Err(anyhow!(
                     "Certificate '{}' requires a challenge provider, but none was found",
                     c.name
                 ));
             }
-            CertificateManager::new(id.clone(), c.clone(), dns_provider, config.store_location.clone())
-                .await
-                .map(|manager| (id.clone(), Arc::new(manager)))
+            CertificateManager::new(
+                id.clone(),
+                c.clone(),
+                dns_provider,
+                config.store_location.clone(),
+            )
+            .await
+            .map(|manager| (id.clone(), Arc::new(manager)))
         })
         .collect::<Vec<_>>();
-    let certificates = futures::future::join_all(certificates).await.into_iter().collect::<Result<HashMap<_, _>>>()?;
+    let certificates = futures::future::join_all(certificates)
+        .await
+        .into_iter()
+        .collect::<Result<HashMap<_, _>>>()?;
 
     if certificates.is_empty() {
         return Err(anyhow!("No certificate managers were successfully created"));
@@ -79,14 +85,14 @@ async fn main() -> Result<()> {
             dns_providers,
             config.store_location.clone(),
         ));
-        
+
         let server_clone = Arc::clone(&server);
         tokio::spawn(async move {
             if let Err(e) = server_clone.start().await {
                 error!("Control socket server error: {}", e);
             }
         });
-        
+
         info!("Control socket server started on: {}", socket_path);
         Some(server)
     } else {
@@ -98,21 +104,29 @@ async fn main() -> Result<()> {
         let certificate = Arc::clone(certificate);
         let cert_id = id.clone();
         let server = control_server.clone();
-        
+
         tokio::spawn(async move {
             let mut failures = 0;
             loop {
                 if certificate.is_discarded() {
-                    info!("Certificate '{}': Discarded, stopping renewal checks", certificate.name());
+                    info!(
+                        "Certificate '{}': Discarded, stopping renewal checks",
+                        certificate.name()
+                    );
                     break;
                 }
                 match certificate.check_and_renew().await {
                     Ok(renewed) => {
                         if renewed {
                             info!("Certificate '{}': Successfully renewed", certificate.name());
-                            
+
                             if let Some(ref server) = server {
-                                let cert_data = serde_json::to_string(&certificate.read_current().await?.expect("No certificate data"))?;
+                                let cert_data = serde_json::to_string(
+                                    &certificate
+                                        .read_current()
+                                        .await?
+                                        .expect("No certificate data"),
+                                )?;
                                 server.notify_certificate_update(&cert_id, cert_data).await;
                             }
                         } else {
@@ -143,7 +157,10 @@ async fn main() -> Result<()> {
                         continue;
                     }
                 }
-                info!("Certificate '{}': Sleeping for 24 hours before next check", certificate.name());
+                info!(
+                    "Certificate '{}': Sleeping for 24 hours before next check",
+                    certificate.name()
+                );
                 tokio::time::sleep(std::time::Duration::from_hours(24)).await;
             }
             Ok::<(), anyhow::Error>(())

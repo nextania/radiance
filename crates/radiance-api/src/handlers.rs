@@ -1,5 +1,8 @@
-use actix_web::{web, HttpResponse};
-use radiance_types::{ControlResponse, config::{HostConfig, PartialHostConfig, TlsCertConfig}};
+use actix_web::{HttpResponse, web};
+use radiance_types::{
+    ControlResponse,
+    config::{HostConfig, PartialHostConfig, TlsCertConfig},
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

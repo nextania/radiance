@@ -1,8 +1,8 @@
-pub mod control_socket;
 pub mod config;
+pub mod control_socket;
 
-pub use control_socket::*;
 pub use config::*;
+pub use control_socket::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

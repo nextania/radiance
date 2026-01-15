@@ -1,12 +1,12 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::environment::{MONGODB_DATABASE, MONGODB_URI};
+use mongodb::{Client, Database};
 use mongodb::{Collection, bson::doc};
 use once_cell::sync::OnceCell;
-use mongodb::{Client, Database};
 use rand::{Rng, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
-use crate::environment::{MONGODB_DATABASE, MONGODB_URI};
 
 static DATABASE: OnceCell<Client> = OnceCell::new();
 static COLLECTION: OnceCell<Collection<Session>> = OnceCell::new();
@@ -41,9 +41,13 @@ impl Session {
         Ok(())
     }
 
-    pub async fn delete_oidc(provider: &str, subject: &str, sid: &Option<String>) -> mongodb::error::Result<()> {
+    pub async fn delete_oidc(
+        provider: &str,
+        subject: &str,
+        sid: &Option<String>,
+    ) -> mongodb::error::Result<()> {
         let collection = get_collection();
-        let mut query = doc! { 
+        let mut query = doc! {
             "oidc_data.provider": provider,
             "oidc_data.subject": subject,
         };
@@ -54,7 +58,7 @@ impl Session {
         Ok(())
     }
 
-    pub async fn validate(token: &str) -> mongodb::error::Result<Option<Session>> {    
+    pub async fn validate(token: &str) -> mongodb::error::Result<Option<Session>> {
         let collection = get_collection();
         let query = collection
             .find_one(doc! {
@@ -103,5 +107,8 @@ pub async fn connect() {
 }
 
 pub fn get_database() -> Database {
-    DATABASE.get().expect("Failed to get MongoDB client").database(&MONGODB_DATABASE)
+    DATABASE
+        .get()
+        .expect("Failed to get MongoDB client")
+        .database(&MONGODB_DATABASE)
 }

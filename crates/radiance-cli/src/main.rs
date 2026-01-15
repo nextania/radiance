@@ -59,16 +59,16 @@ fn run_command(socket_path: &str, command: Commands) -> Result<(), Box<dyn std::
             let response = send_command(socket_path, ControlCommand::ListHosts)?;
             println!("✓ Hosts:");
             println!("{}", serde_json::to_string_pretty(&response)?);
-        },
+        }
         Commands::GetHost { id } => {
             let response = send_command(socket_path, ControlCommand::GetHost { id })?;
             println!("✓ Host:");
             println!("{}", serde_json::to_string_pretty(&response)?);
-        },
+        }
         Commands::Reload => {
             send_command(socket_path, ControlCommand::Reload)?;
             println!("✓ Reload command sent successfully");
-        },
+        }
         Commands::HashPassword => {
             write!(std::io::stdout(), "Enter password: ")?;
             std::io::stdout().flush()?;

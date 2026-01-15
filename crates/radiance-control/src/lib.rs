@@ -39,7 +39,8 @@ impl RadianceControlClient {
         id: String,
         host: radiance_types::config::HostConfig,
     ) -> Result<ControlResponse> {
-        self.send_command(ControlCommand::AddHost { id, host }).await
+        self.send_command(ControlCommand::AddHost { id, host })
+            .await
     }
 
     pub async fn update_host(
@@ -81,17 +82,27 @@ impl RadianceControlClient {
         .await
     }
 
-    pub async fn clear_http_challenge(&self, domain: String, token: String) -> Result<ControlResponse> {
+    pub async fn clear_http_challenge(
+        &self,
+        domain: String,
+        token: String,
+    ) -> Result<ControlResponse> {
         self.send_command(ControlCommand::ClearHttpChallenge { domain, token })
             .await
     }
 
-    pub async fn add_certificate(&self, id: String, certificate: radiance_types::config::TlsCertConfig) -> Result<ControlResponse> {
-        self.send_command(ControlCommand::AddCertificate { id, certificate }).await
+    pub async fn add_certificate(
+        &self,
+        id: String,
+        certificate: radiance_types::config::TlsCertConfig,
+    ) -> Result<ControlResponse> {
+        self.send_command(ControlCommand::AddCertificate { id, certificate })
+            .await
     }
 
     pub async fn remove_certificate(&self, id: String) -> Result<ControlResponse> {
-        self.send_command(ControlCommand::RemoveCertificate { id }).await
+        self.send_command(ControlCommand::RemoveCertificate { id })
+            .await
     }
 
     pub async fn list_certificates(&self) -> Result<ControlResponse> {
@@ -99,7 +110,8 @@ impl RadianceControlClient {
     }
 
     pub async fn get_certificate(&self, id: String) -> Result<ControlResponse> {
-        self.send_command(ControlCommand::GetCertificate { id }).await
+        self.send_command(ControlCommand::GetCertificate { id })
+            .await
     }
 }
 
@@ -110,18 +122,19 @@ pub struct ZenithCertificateClient {
 }
 
 impl ZenithCertificateClient {
-    pub async fn new(path: &str, id: &str) -> anyhow::Result<Self> {        
+    pub async fn new(path: &str, id: &str) -> anyhow::Result<Self> {
         let stream = UnixStream::connect(path).await?;
         let (reader, mut writer) = stream.into_split();
-        let command = zenith_types::ControlCommand::SubscribeCertificate {
-            id: id.to_string(),
-        };
+        let command = zenith_types::ControlCommand::SubscribeCertificate { id: id.to_string() };
         let command_json = serde_json::to_string(&command)?;
         writer.write_all(command_json.as_bytes()).await?;
         writer.write_all(b"\n").await?;
         writer.flush().await?;
         let buf_reader = BufReader::new(reader);
-        Ok(Self { buf_reader, buffer: Vec::new() })
+        Ok(Self {
+            buf_reader,
+            buffer: Vec::new(),
+        })
     }
 
     pub async fn read(&mut self) -> anyhow::Result<zenith_types::Certificate> {
@@ -146,14 +159,18 @@ impl ZenithControlClient {
         Self { socket_path }
     }
 
-    pub async fn send_command(&self, command: zenith_types::ControlCommand) -> Result<zenith_types::ControlResponse> {
+    pub async fn send_command(
+        &self,
+        command: zenith_types::ControlCommand,
+    ) -> Result<zenith_types::ControlResponse> {
         let response_line = send(&self.socket_path, &serde_json::to_string(&command)?).await?;
         let response: zenith_types::ControlResponse = serde_json::from_str(&response_line)?;
         Ok(response)
     }
 
     pub async fn get_certificate(&self, id: String) -> Result<zenith_types::ControlResponse> {
-        self.send_command(zenith_types::ControlCommand::GetCertificate { id }).await
+        self.send_command(zenith_types::ControlCommand::GetCertificate { id })
+            .await
     }
 
     pub async fn add_certificate(
@@ -171,7 +188,8 @@ impl ZenithControlClient {
     }
 
     pub async fn list_certificates(&self) -> Result<zenith_types::ControlResponse> {
-        self.send_command(zenith_types::ControlCommand::ListCertificates).await
+        self.send_command(zenith_types::ControlCommand::ListCertificates)
+            .await
     }
 
     pub async fn get_renew_status(&self, id: String) -> Result<zenith_types::ControlResponse> {

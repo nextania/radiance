@@ -17,7 +17,7 @@ pub enum Error {
     OidcServerError,
     BackchannelLogoutError,
     ControlSocketError,
-    
+
     RateLimited {
         limit: u64,
         remaining: u64,

@@ -1,9 +1,9 @@
-use crate::store::Store;
-use radiance_control::{RadianceControlClient};
-use crate::dns_provider::DnsProvider;
 use crate::acme_provider::AcmeProviderType;
+use crate::dns_provider::DnsProvider;
+use crate::store::Store;
 use anyhow::{Result, anyhow};
 use instant_acme::{Account, ChallengeType, Identifier, NewOrder, OrderStatus};
+use radiance_control::RadianceControlClient;
 use rcgen::{CertificateParams, KeyPair};
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,14 +38,12 @@ impl AcmeService {
         }
     }
 
-    async fn get_or_create_account(
-        &self,
-        store: Arc<dyn Store>,
-    ) -> Result<Account> {
+    async fn get_or_create_account(&self, store: Arc<dyn Store>) -> Result<Account> {
         let credentials = store.get_account_key().await?;
         if let Some(credentials) = credentials {
             info!("Loading existing account credentials from store");
-            let account = Account::from_credentials(serde_json::from_str(&credentials.clone())?).await?;
+            let account =
+                Account::from_credentials(serde_json::from_str(&credentials.clone())?).await?;
 
             Ok(account)
         } else {
@@ -106,7 +104,8 @@ impl AcmeService {
                 .iter()
                 .find(|c| c.r#type == ChallengeType::Dns01)
                 .or_else(|| {
-                    authz.challenges
+                    authz
+                        .challenges
                         .iter()
                         .find(|c| c.r#type == ChallengeType::Http01)
                 });
@@ -124,7 +123,7 @@ impl AcmeService {
                             let record_id = dns_provider
                                 .create_txt_record(&base_domain, &record_name, &key_authorization)
                                 .await?;
-                
+
                             info!("Validating challenge");
                             order.set_challenge_ready(&challenge.url).await?;
                             let mut attempts = 0;
@@ -161,9 +160,7 @@ impl AcmeService {
                                 .delete_txt_record(&base_domain, &record_id)
                                 .await?;
                         } else {
-                            return Err(anyhow!(
-                                "No DNS provider configured for DNS-01 challenge"
-                            ));
+                            return Err(anyhow!("No DNS provider configured for DNS-01 challenge"));
                         }
                     }
                     ChallengeType::Http01 => {
@@ -175,9 +172,13 @@ impl AcmeService {
                             let token = &challenge.token;
                             let key_authorization = order.key_authorization(challenge);
                             control_socket
-                                .set_http_challenge(domain.to_string(), token.to_string(), key_authorization.as_str().to_string())
+                                .set_http_challenge(
+                                    domain.to_string(),
+                                    token.to_string(),
+                                    key_authorization.as_str().to_string(),
+                                )
                                 .await?;
-                
+
                             info!("Validating challenge");
                             order.set_challenge_ready(&challenge.url).await?;
                             let mut attempts = 0;
@@ -193,7 +194,10 @@ impl AcmeService {
                                     }
                                     OrderStatus::Invalid => {
                                         control_socket
-                                            .clear_http_challenge(domain.to_string(), token.to_string())
+                                            .clear_http_challenge(
+                                                domain.to_string(),
+                                                token.to_string(),
+                                            )
                                             .await
                                             .ok();
                                         return Err(anyhow!("Challenge validation failed"));
@@ -202,7 +206,10 @@ impl AcmeService {
                                         attempts += 1;
                                         if attempts > 30 {
                                             control_socket
-                                                .clear_http_challenge(domain.to_string(), token.to_string())
+                                                .clear_http_challenge(
+                                                    domain.to_string(),
+                                                    token.to_string(),
+                                                )
                                                 .await
                                                 .ok();
                                             return Err(anyhow!("Challenge validation timeout"));
@@ -229,7 +236,6 @@ impl AcmeService {
                     authz.identifier
                 ));
             }
-
         }
 
         info!("Generating certificate private key");

@@ -1,19 +1,19 @@
 pub mod auth;
 pub mod config;
-pub mod handlers;
-pub mod sessions;
 pub mod environment;
 pub mod errors;
+pub mod handlers;
+pub mod sessions;
 
 use actix_files::{Files, NamedFile};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::{middleware::Logger, web, App, HttpServer};
+use actix_web::{App, HttpServer, middleware::Logger, web};
 use anyhow::Result;
 use serde::Serialize;
-use tracing::{error, info};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::auth::AuthMiddleware;
@@ -37,7 +37,9 @@ pub struct CapabilitiesResponse {
     pub password_authentication: bool,
 }
 
-async fn capabilities(config: web::Data<Arc<ApiConfig>>) -> actix_web::Result<actix_web::HttpResponse> {
+async fn capabilities(
+    config: web::Data<Arc<ApiConfig>>,
+) -> actix_web::Result<actix_web::HttpResponse> {
     Ok(actix_web::HttpResponse::Ok().json(CapabilitiesResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         oidc_providers: config
@@ -54,7 +56,6 @@ async fn capabilities(config: web::Data<Arc<ApiConfig>>) -> actix_web::Result<ac
     }))
 }
 
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
@@ -69,7 +70,10 @@ async fn main() -> Result<()> {
         .ok();
 
     if !Path::new(&*environment::RADIANCE_API_CONFIG).exists() {
-        error!("Config file not found at {}", *environment::RADIANCE_API_CONFIG);
+        error!(
+            "Config file not found at {}",
+            *environment::RADIANCE_API_CONFIG
+        );
         std::process::exit(1);
     }
     let config_content = fs::read_to_string(&*environment::RADIANCE_API_CONFIG)?;
@@ -88,10 +92,7 @@ async fn main() -> Result<()> {
         info!("Password authentication enabled");
     }
     if !config.oidc_providers.is_empty() {
-        info!(
-            "OIDC providers configured: {}",
-            config.oidc_providers.len()
-        );
+        info!("OIDC providers configured: {}", config.oidc_providers.len());
     }
 
     info!("Connecting to MongoDB...");
@@ -112,52 +113,58 @@ async fn main() -> Result<()> {
             .route("", web::get().to(capabilities))
             .route("/session", web::post().to(auth::password_login))
             .route("/oidc/{provider}", web::get().to(auth::oidc_login))
-            .route("/oidc/{provider}/backchannel-logout", web::post().to(auth::logout_backchannel))
+            .route(
+                "/oidc/{provider}/backchannel-logout",
+                web::post().to(auth::logout_backchannel),
+            )
             .route("/callback", web::get().to(auth::oidc_callback))
-            .service(web::resource("/session")
+            .service(
+                web::resource("/session")
                 .wrap(AuthMiddleware)
-                .route(web::get().to(auth::validate)))
-            .service(web::resource("/session")
+                    .route(web::get().to(auth::validate)),
+            )
+            .service(
+                web::resource("/session")
                 .wrap(AuthMiddleware)
-                .route(web::delete().to(auth::logout)))
-            .service(web::scope("/hosts")
+                    .route(web::delete().to(auth::logout)),
+            )
+            .service(
+                web::scope("/hosts")
                 .wrap(AuthMiddleware)
                 .route("", web::get().to(handlers::list_hosts))
                 .route("", web::post().to(handlers::add_host))
                 .route("/{id}", web::get().to(handlers::get_host))
                 .route("/{id}", web::put().to(handlers::update_host))
-                .route("/{id}", web::delete().to(handlers::remove_host))
+                    .route("/{id}", web::delete().to(handlers::remove_host)),
             )
-            .service(web::scope("/certificates")
+            .service(
+                web::scope("/certificates")
                 .wrap(AuthMiddleware)
                 .route("/", web::get().to(handlers::list_certificates))
                 .route("/", web::post().to(handlers::add_certificate))
                 .route("/{id}", web::get().to(handlers::get_certificate))
-                .route("/{id}", web::delete().to(handlers::remove_certificate))
+                    .route("/{id}", web::delete().to(handlers::remove_certificate)),
             )
-            .service(web::scope("/reload")
+            .service(
+                web::scope("/reload")
                 .wrap(AuthMiddleware)
-                .route("", web::post().to(handlers::reload))
+                    .route("", web::post().to(handlers::reload)),
             )
-            .service(web::scope("/challenges")
+            .service(
+                web::scope("/challenges")
                 .wrap(AuthMiddleware)
-                .route(
-                    "/http",
-                    web::post().to(handlers::set_http_challenge),
-                )
-                .route(
-                    "/http",
-                    web::delete().to(handlers::clear_http_challenge),
-                )
+                    .route("/http", web::post().to(handlers::set_http_challenge))
+                    .route("/http", web::delete().to(handlers::clear_http_challenge)),
             );
-        app = app.service(api_scope).service(Files::new("/", "bundle")
+        app = app.service(api_scope).service(
+            Files::new("/", "bundle")
                     .index_file("index.html")
                     .default_handler(|req: ServiceRequest| async {
                         let (request, _) = req.into_parts();
-                        let response =
-                            NamedFile::open("bundle/index.html")?.into_response(&request);
+                    let response = NamedFile::open("bundle/index.html")?.into_response(&request);
                         Ok(ServiceResponse::new(request, response))
-                    }),);
+                }),
+        );
         app
     })
     .bind(&listen_addr)?

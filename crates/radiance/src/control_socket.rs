@@ -9,9 +9,9 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::RwLock;
 use tracing::{error, info};
 
-use radiance_types::{HostConfig, PartialHostConfig};
 use crate::config::{Config, FullConfig, TlsCertConfigExt, TlsCertConfigState};
 use crate::environment::CONFIG_FILE;
+use radiance_types::{HostConfig, PartialHostConfig};
 
 pub type SharedConfig = Arc<RwLock<FullConfig>>;
 
@@ -94,9 +94,17 @@ async fn process_command(command: ControlCommand, config: SharedConfig) -> Contr
         ControlCommand::ListHosts => list_hosts(config).await,
         ControlCommand::GetHost { id } => get_host(config, id).await,
         ControlCommand::Reload => reload_config(config).await,
-        ControlCommand::ClearHttpChallenge { domain, token } => clear_http_challenge(config, domain, token).await,
-        ControlCommand::SetHttpChallenge { domain, token, thumbprint } => set_http_challenge(config, domain, token, thumbprint).await,
-        ControlCommand::AddCertificate { id, certificate } => add_certificate(config, &id, certificate).await,
+        ControlCommand::ClearHttpChallenge { domain, token } => {
+            clear_http_challenge(config, domain, token).await
+        }
+        ControlCommand::SetHttpChallenge {
+            domain,
+            token,
+            thumbprint,
+        } => set_http_challenge(config, domain, token, thumbprint).await,
+        ControlCommand::AddCertificate { id, certificate } => {
+            add_certificate(config, &id, certificate).await
+        }
         ControlCommand::RemoveCertificate { id } => remove_certificate(config, id).await,
         ControlCommand::ListCertificates => list_certificates(config).await,
         ControlCommand::GetCertificate { id } => get_certificate(config, id).await,
@@ -107,24 +115,30 @@ fn empty() -> serde_json::Value {
     serde_json::to_value(Empty {}).unwrap()
 }
 
-async fn set_http_challenge(config: SharedConfig, domain: String, token: String, thumbprint: String) -> ControlResponse {
+async fn set_http_challenge(
+    config: SharedConfig,
+    domain: String,
+    token: String,
+    thumbprint: String,
+) -> ControlResponse {
     let mut cfg = config.write().await;
-    cfg.active_challenges.insert(domain.clone(), (token.clone(), thumbprint.clone()));
+    cfg.active_challenges
+        .insert(domain.clone(), (token.clone(), thumbprint.clone()));
     info!("Set HTTP challenge for domain: {}", domain);
-    ControlResponse::Success {
-        data: empty(),
-    }
+    ControlResponse::Success { data: empty() }
 }
 
-async fn clear_http_challenge(config: SharedConfig, domain: String, token: String) -> ControlResponse {
+async fn clear_http_challenge(
+    config: SharedConfig,
+    domain: String,
+    token: String,
+) -> ControlResponse {
     let mut cfg = config.write().await;
     match cfg.active_challenges.get(&domain) {
         Some((stored_token, _)) if *stored_token == token => {
             cfg.active_challenges.remove(&domain);
             info!("Cleared HTTP challenge for domain: {}", domain);
-            ControlResponse::Success {
-                data: empty(),
-            }
+            ControlResponse::Success { data: empty() }
         }
         _ => ControlResponse::Error {
             error: ControlError::HttpChallengeNotFound,
@@ -152,9 +166,7 @@ async fn add_host(config: SharedConfig, id: String, new_host: HostConfig) -> Con
         };
     }
     info!("Added new host with domains: {:?}", new_host.domains);
-    ControlResponse::Success {
-        data: empty(),
-    }
+    ControlResponse::Success { data: empty() }
 }
 
 async fn update_host(
@@ -171,14 +183,12 @@ async fn update_host(
             *index = Arc::new(config.into());
             if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
                 return ControlResponse::Error {
-                    error: ControlError::FailedToSave
+                    error: ControlError::FailedToSave,
                 };
             }
 
             info!("Updated host for ID: {}", id);
-            ControlResponse::Success {
-                data: empty(),
-            }
+            ControlResponse::Success { data: empty() }
         }
         None => ControlResponse::Error {
             error: ControlError::HostNotFound,
@@ -193,7 +203,7 @@ async fn remove_host(config: SharedConfig, id: String) -> ControlResponse {
         Some(removed_host) => {
             if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
                 return ControlResponse::Error {
-                    error: ControlError::FailedToSave
+                    error: ControlError::FailedToSave,
                 };
             }
 
@@ -201,9 +211,7 @@ async fn remove_host(config: SharedConfig, id: String) -> ControlResponse {
                 "Removed host with domains: {:?}",
                 removed_host.config.domains
             );
-            ControlResponse::Success {
-                data: empty(),
-            }
+            ControlResponse::Success { data: empty() }
         }
         None => ControlResponse::Error {
             error: ControlError::HostNotFound,
@@ -214,11 +222,8 @@ async fn remove_host(config: SharedConfig, id: String) -> ControlResponse {
 async fn list_hosts(config: SharedConfig) -> ControlResponse {
     let cfg = config.read().await;
     let cfg: Config = (&*cfg).into();
-    let hosts_json =
-        serde_json::to_value(&cfg.hosts).unwrap_or(serde_json::Value::Null);
-    ControlResponse::Success {
-        data: hosts_json,
-    }
+    let hosts_json = serde_json::to_value(&cfg.hosts).unwrap_or(serde_json::Value::Null);
+    ControlResponse::Success { data: hosts_json }
 }
 
 async fn get_host(config: SharedConfig, id: String) -> ControlResponse {
@@ -226,9 +231,7 @@ async fn get_host(config: SharedConfig, id: String) -> ControlResponse {
     match cfg.hosts.get(&id) {
         Some(host) => {
             let host_json = serde_json::to_value(&host.config).unwrap_or(serde_json::Value::Null);
-            ControlResponse::Success {
-                data: host_json,
-            }
+            ControlResponse::Success { data: host_json }
         }
         None => ControlResponse::Error {
             error: ControlError::HostNotFound,
@@ -245,16 +248,17 @@ async fn reload_config(config: SharedConfig) -> ControlResponse {
             *cfg = new_config;
             cfg.certificates = current_certs;
             // find all certs that exist in the old config but not in the new one and mark them as discarded
-            let removed = cfg.certificates.extract_if(|k, _| !raw.certificates.contains_key(k)).collect::<Vec<_>>();
+            let removed = cfg
+                .certificates
+                .extract_if(|k, _| !raw.certificates.contains_key(k))
+                .collect::<Vec<_>>();
             for (_, removed_cert) in removed {
                 removed_cert.discarded.store(true, Ordering::SeqCst);
             }
             // spawn loading for new certs
             FullConfig::spawn_certificate_loading(raw, config.clone());
             info!("Configuration reloaded from file");
-            ControlResponse::Success {
-                data: empty(),
-            }
+            ControlResponse::Success { data: empty() }
         }
         Err(_) => ControlResponse::Error {
             error: ControlError::FailedToReload,
@@ -262,7 +266,11 @@ async fn reload_config(config: SharedConfig) -> ControlResponse {
     }
 }
 
-async fn add_certificate(config: SharedConfig, id: &str, certificate: radiance_types::config::TlsCertConfig) -> ControlResponse {
+async fn add_certificate(
+    config: SharedConfig,
+    id: &str,
+    certificate: radiance_types::config::TlsCertConfig,
+) -> ControlResponse {
     let mut cfg = config.write().await;
     if cfg.certificates.contains_key(id) {
         return ControlResponse::Error {
@@ -271,29 +279,35 @@ async fn add_certificate(config: SharedConfig, id: &str, certificate: radiance_t
     }
     let cert_key = match certificate.read_cert().await {
         Ok(cert) => cert,
-        Err(_) => return ControlResponse::Error {
-            error: ControlError::InvalidCertificate,
-        },
+        Err(_) => {
+            return ControlResponse::Error {
+                error: ControlError::InvalidCertificate,
+            };
+        }
     };
-    cfg.certificates.insert(id.to_string(), Arc::new(crate::config::TlsCertConfigWithKey {
-        config: certificate.clone(),
-        cert: TlsCertConfigState::Loaded(cert_key),
-        discarded: Arc::new(AtomicBool::new(false)),
-    }));
+    cfg.certificates.insert(
+        id.to_string(),
+        Arc::new(crate::config::TlsCertConfigWithKey {
+            config: certificate.clone(),
+            cert: TlsCertConfigState::Loaded(cert_key),
+            discarded: Arc::new(AtomicBool::new(false)),
+        }),
+    );
     if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
         return ControlResponse::Error {
             error: ControlError::FailedToSave,
         };
     }
     info!("Added new certificate with ID: {}", id);
-    ControlResponse::Success {
-        data: empty(),
-    }
+    ControlResponse::Success { data: empty() }
 }
 
 async fn remove_certificate(config: SharedConfig, id: String) -> ControlResponse {
     let mut cfg = config.write().await;
-    let removed = cfg.certificates.extract_if(|k, _| k != &id).collect::<Vec<_>>();
+    let removed = cfg
+        .certificates
+        .extract_if(|k, _| k != &id)
+        .collect::<Vec<_>>();
     if removed.is_empty() {
         return ControlResponse::Error {
             error: ControlError::CertificateNotFound,
@@ -308,18 +322,14 @@ async fn remove_certificate(config: SharedConfig, id: String) -> ControlResponse
         };
     }
     info!("Removed certificate with ID: {}", id);
-    ControlResponse::Success {
-        data: empty(),
-    }
+    ControlResponse::Success { data: empty() }
 }
 
 async fn list_certificates(config: SharedConfig) -> ControlResponse {
     let cfg = config.read().await;
     let cfg: Config = (&*cfg).into();
     let certs_json = serde_json::to_value(&cfg.certificates).unwrap_or(serde_json::Value::Null);
-    ControlResponse::Success {
-        data: certs_json,
-    }
+    ControlResponse::Success { data: certs_json }
 }
 
 async fn get_certificate(config: SharedConfig, id: String) -> ControlResponse {
@@ -327,9 +337,7 @@ async fn get_certificate(config: SharedConfig, id: String) -> ControlResponse {
     match cfg.certificates.get(&id) {
         Some(cert) => {
             let cert_json = serde_json::to_value(&cert.config).unwrap_or(serde_json::Value::Null);
-            ControlResponse::Success {
-                data: cert_json,
-            }
+            ControlResponse::Success { data: cert_json }
         }
         None => ControlResponse::Error {
             error: ControlError::CertificateNotFound,

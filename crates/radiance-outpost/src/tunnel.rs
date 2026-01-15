@@ -7,14 +7,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
-use radiance_types::{
-    ArchivedDatagramMessage, ArchivedProtocolS2C, ArchivedStreamS2C, DatagramMessage,
-    ProtocolC2S, StreamC2S,
-};
 use crate::tcp_forwarder::TcpEvent;
-use crate::{
-    tcp_forwarder::TcpForwarder,
-    udp_forwarder::UdpForwarder,
+use crate::{tcp_forwarder::TcpForwarder, udp_forwarder::UdpForwarder};
+use radiance_types::{
+    ArchivedDatagramMessage, ArchivedProtocolS2C, ArchivedStreamS2C, DatagramMessage, ProtocolC2S,
+    StreamC2S,
 };
 
 #[derive(Debug)]
@@ -231,7 +228,14 @@ impl Tunnel {
                                     continue;
                                 }
                                 info!("Processing stream message: {:?}", data.msg);
-                                Self::handle_protocol_message(&data.msg, &tcp, &udp, shared_secret, &connection).await;
+                                Self::handle_protocol_message(
+                                    &data.msg,
+                                    &tcp,
+                                    &udp,
+                                    shared_secret,
+                                    &connection,
+                                )
+                                .await;
                             }
                             Err(e) => {
                                 warn!("Failed to deserialize message: {:?}", e);
@@ -357,7 +361,7 @@ impl Tunnel {
         let mut send_buf = Vec::new();
         send_buf.extend_from_slice(&(buf.len() as u16).to_be_bytes());
         send_buf.extend_from_slice(&buf);
-        
+
         let (mut send, _recv) = connection
             .open_bi()
             .await
@@ -366,7 +370,7 @@ impl Tunnel {
             .await
             .context("Failed to write response message")?;
         send.finish().context("Failed to finish stream")?;
-        
+
         Ok(())
     }
 

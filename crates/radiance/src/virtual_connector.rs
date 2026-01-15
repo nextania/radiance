@@ -1,4 +1,11 @@
-use pingora::{connectors::L4Connect, protocols::l4::{socket::SocketAddr, stream::Stream, virt::{VirtualSocket, VirtualSocketStream}}};
+use pingora::{
+    connectors::L4Connect,
+    protocols::l4::{
+        socket::SocketAddr,
+        stream::Stream,
+        virt::{VirtualSocket, VirtualSocketStream},
+    },
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::outpost::{ACTIVE_TCP_STREAMS, OutpostRequest, OutpostResponse, request};

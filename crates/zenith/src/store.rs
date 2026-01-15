@@ -38,7 +38,6 @@ impl VaultStore {
 
 #[async_trait]
 impl Store for LocalStore {
-
     async fn get_account_key(&self) -> Result<Option<String>> {
         let path = self.path.join("account.key");
         if !path.exists() {
@@ -97,7 +96,6 @@ impl Store for LocalStore {
 
 #[async_trait]
 impl Store for VaultStore {
-
     async fn get_account_key(&self) -> Result<Option<String>> {
         todo!()
     }
