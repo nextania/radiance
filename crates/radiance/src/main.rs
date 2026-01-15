@@ -52,7 +52,7 @@ async fn get_cert_for_sni(sni: &str, config: Arc<RwLock<FullConfig>>) -> Option<
             }
         })
         .flatten()
-        .map(|s| config.certificates.iter().find(|c| c.config.id() == s))
+        .map(|s| config.certificates.get(&s).cloned())
         .flatten();
     match id {
         Some(cert_cfg) => match cert_cfg.cert {

@@ -7,28 +7,15 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TlsCertConfig {
     Local {
-        id: String,
         cert_file: String,
         key_file: String,
     },
     Vault {
-        id: String,
         vault_path: String,
     },
     Managed {
-        id: String,
         control_socket: String,
     },
-}
-
-impl TlsCertConfig {
-    pub fn id(&self) -> &str {
-        match self {
-            TlsCertConfig::Local { id, .. } => id,
-            TlsCertConfig::Vault { id, .. } => id,
-            TlsCertConfig::Managed { id, .. } => id,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Partial)]

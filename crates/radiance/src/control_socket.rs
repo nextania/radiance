@@ -3,6 +3,7 @@ use radiance_types::{ControlCommand, ControlError, ControlResponse, Empty};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::RwLock;
@@ -95,7 +96,7 @@ async fn process_command(command: ControlCommand, config: SharedConfig) -> Contr
         ControlCommand::Reload => reload_config(config).await,
         ControlCommand::ClearHttpChallenge { domain, token } => clear_http_challenge(config, domain, token).await,
         ControlCommand::SetHttpChallenge { domain, token, thumbprint } => set_http_challenge(config, domain, token, thumbprint).await,
-        ControlCommand::AddCertificate { certificate } => add_certificate(config, certificate).await,
+        ControlCommand::AddCertificate { id, certificate } => add_certificate(config, &id, certificate).await,
         ControlCommand::RemoveCertificate { id } => remove_certificate(config, id).await,
         ControlCommand::ListCertificates => list_certificates(config).await,
         ControlCommand::GetCertificate { id } => get_certificate(config, id).await,
@@ -239,10 +240,17 @@ async fn reload_config(config: SharedConfig) -> ControlResponse {
     match crate::config::FullConfig::load_from_file(&CONFIG_FILE).await {
         Ok((raw, new_config)) => {
             let mut cfg = config.write().await;
+            // replace everything but certificates
+            let current_certs = std::mem::take(&mut cfg.certificates);
             *cfg = new_config;
-            // TODO: (broken) handle reloading of certificates properly
-            // we can't just replace the whole config as some certs may be in use
-            // so we should update only when they are done loading (with)
+            cfg.certificates = current_certs;
+            // find all certs that exist in the old config but not in the new one and mark them as discarded
+            let removed = cfg.certificates.extract_if(|k, _| !raw.certificates.contains_key(k)).collect::<Vec<_>>();
+            for (_, removed_cert) in removed {
+                removed_cert.discarded.store(true, Ordering::SeqCst);
+            }
+            // spawn loading for new certs
+            FullConfig::spawn_certificate_loading(raw, config.clone());
             info!("Configuration reloaded from file");
             ControlResponse::Success {
                 data: empty(),
@@ -254,9 +262,9 @@ async fn reload_config(config: SharedConfig) -> ControlResponse {
     }
 }
 
-async fn add_certificate(config: SharedConfig, certificate: radiance_types::config::TlsCertConfig) -> ControlResponse {
+async fn add_certificate(config: SharedConfig, id: &str, certificate: radiance_types::config::TlsCertConfig) -> ControlResponse {
     let mut cfg = config.write().await;
-    if cfg.certificates.iter().any(|c| c.config.id() == certificate.id()) {
+    if cfg.certificates.contains_key(id) {
         return ControlResponse::Error {
             error: ControlError::CertificateAlreadyExists,
         };
@@ -267,16 +275,17 @@ async fn add_certificate(config: SharedConfig, certificate: radiance_types::conf
             error: ControlError::InvalidCertificate,
         },
     };
-    cfg.certificates.push(Arc::new(crate::config::TlsCertConfigWithKey {
+    cfg.certificates.insert(id.to_string(), Arc::new(crate::config::TlsCertConfigWithKey {
         config: certificate.clone(),
         cert: TlsCertConfigState::Loaded(cert_key),
+        discarded: Arc::new(AtomicBool::new(false)),
     }));
     if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
         return ControlResponse::Error {
             error: ControlError::FailedToSave,
         };
     }
-    info!("Added new certificate with ID: {}", certificate.id());
+    info!("Added new certificate with ID: {}", id);
     ControlResponse::Success {
         data: empty(),
     }
@@ -284,12 +293,14 @@ async fn add_certificate(config: SharedConfig, certificate: radiance_types::conf
 
 async fn remove_certificate(config: SharedConfig, id: String) -> ControlResponse {
     let mut cfg = config.write().await;
-    let initial_len = cfg.certificates.len();
-    cfg.certificates.retain(|c| c.config.id() != id);
-    if cfg.certificates.len() == initial_len {
+    let removed = cfg.certificates.extract_if(|k, _| k != &id).collect::<Vec<_>>();
+    if removed.is_empty() {
         return ControlResponse::Error {
             error: ControlError::CertificateNotFound,
         };
+    }
+    for (_, removed_cert) in removed {
+        removed_cert.discarded.store(true, Ordering::SeqCst);
     }
     if cfg.save_to_file(&CONFIG_FILE).await.is_err() {
         return ControlResponse::Error {
@@ -313,7 +324,7 @@ async fn list_certificates(config: SharedConfig) -> ControlResponse {
 
 async fn get_certificate(config: SharedConfig, id: String) -> ControlResponse {
     let cfg = config.read().await;
-    match cfg.certificates.iter().find(|c| c.config.id() == id) {
+    match cfg.certificates.get(&id) {
         Some(cert) => {
             let cert_json = serde_json::to_value(&cert.config).unwrap_or(serde_json::Value::Null);
             ControlResponse::Success {

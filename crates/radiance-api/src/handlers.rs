@@ -152,12 +152,18 @@ pub async fn clear_http_challenge(
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AddCertificateRequest {
+    pub id: String,
+    pub certificate: TlsCertConfig,
+}
+
 pub async fn add_certificate(
     client: web::Data<Arc<ControlSocketClient>>,
-    certificate: web::Json<TlsCertConfig>,
+    certificate: web::Json<AddCertificateRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let response = client
-        .add_certificate(certificate.into_inner())
+        .add_certificate(certificate.id.clone(), certificate.certificate.clone())
         .await
         .map_err(|_| ApiError::GeneralError(crate::errors::Error::ControlSocketError))?;
 

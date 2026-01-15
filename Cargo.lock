@@ -3478,7 +3478,6 @@ dependencies = [
  "rand 0.9.2",
  "rkyv",
  "rustls",
- "rustls-pemfile",
  "serde",
  "serde_json",
  "sha2",
@@ -3488,6 +3487,7 @@ dependencies = [
  "tracing-subscriber",
  "ulid",
  "vaultrs",
+ "zenith-types",
 ]
 
 [[package]]

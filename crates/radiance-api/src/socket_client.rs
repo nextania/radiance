@@ -81,8 +81,8 @@ impl ControlSocketClient {
             .await
     }
 
-    pub async fn add_certificate(&self, certificate: radiance_types::config::TlsCertConfig) -> Result<ControlResponse> {
-        self.send_command(ControlCommand::AddCertificate { certificate }).await
+    pub async fn add_certificate(&self, id: String, certificate: radiance_types::config::TlsCertConfig) -> Result<ControlResponse> {
+        self.send_command(ControlCommand::AddCertificate { id, certificate }).await
     }
 
     pub async fn remove_certificate(&self, id: String) -> Result<ControlResponse> {

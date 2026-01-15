@@ -152,7 +152,6 @@ impl AcmeService {
                                                 .await
                                                 .ok();
                                             return Err(anyhow!("Challenge validation timeout"));
-                                            // TODO: When timing out, retry sooner than 24 hours
                                         }
                                     }
                                 }

@@ -26,10 +26,10 @@ anyhow = "1.0.100"
 partially = { version = "0.2.1", features = ["derive"] }
 http = "1.4.0"
 ulid = "1.2.1"
-rustls-pemfile = "2.2.0"
 rand = "0.9.2"
 rkyv = "0.8.13"
 dashmap = "6.1.0"
 quinn = "0.11.9"
 radiance-types = { path = "../radiance-types" }
 sha2 = "0.10.9"
+zenith-types = { path = "../zenith-types" }

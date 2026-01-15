@@ -14,7 +14,7 @@ pub enum ControlCommand {
     GetHost { id: String },
     SetHttpChallenge { domain: String, token: String, thumbprint: String },
     ClearHttpChallenge { domain: String, token: String },
-    AddCertificate { certificate: TlsCertConfig },
+    AddCertificate { id: String, certificate: TlsCertConfig },
     RemoveCertificate { id: String },
     ListCertificates,
     GetCertificate { id: String },

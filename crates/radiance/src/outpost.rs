@@ -10,6 +10,7 @@ use tracing::{debug, error, info, warn};
 use radiance_types::{
     ArchivedDatagramMessage, ArchivedProtocolC2S, ArchivedStreamC2S, ProtocolS2C, StreamS2C,
 };
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 
 use crate::{
     config::OutpostConfig,
@@ -130,13 +131,12 @@ pub fn make_config() -> anyhow::Result<ServerConfig> {
     let cert_data = std::fs::read(cert_path).context("Failed to read certificate file")?;
     let key_data = std::fs::read(key_path).context("Failed to read private key file")?;
 
-    let cert_chain = rustls_pemfile::certs(&mut &cert_data[..])
+    let cert_chain = CertificateDer::pem_reader_iter(&mut &cert_data[..])
         .collect::<Result<Vec<_>, _>>()
         .context("Failed to parse certificate")?;
 
-    let key = rustls_pemfile::private_key(&mut &key_data[..])
-        .context("Failed to parse private key")?
-        .context("No private key found")?;
+    let key = PrivateKeyDer::from_pem_reader(&mut &key_data[..])
+        .context("Failed to parse private key")?;
 
     let mut crypto = rustls::ServerConfig::builder()
         .with_no_client_auth()
