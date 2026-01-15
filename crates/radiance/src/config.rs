@@ -274,15 +274,15 @@ impl FullConfig {
                             tokio::spawn(async move {
                                 // listen renewals here
                                 let mut cert = Arc::clone(&arc);
+                                let mut certificate =
+                                    radiance_control::ZenithCertificateClient::new(
+                                        &control_socket,
+                                        &remote_id,
+                                    )
+                                    .await?;
+                                let mut interval = time::interval(Duration::from_secs(60));
                                 loop {
                                     // await on unix socket
-                                    let mut certificate =
-                                        radiance_control::ZenithCertificateClient::new(
-                                            &control_socket,
-                                            &remote_id,
-                                        )
-                                        .await?;
-                                    let mut interval = time::interval(Duration::from_secs(60));
                                     tokio::select! {
                                         new_cert = certificate.read() => {
                                             if !cert.discarded.load(Ordering::SeqCst) &&
